@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -232,7 +232,7 @@ func (s *OrderService) QueryPrepared(ctx context.Context, _ *emptypb.Empty) (*em
 
 // Step 5.1: 查询单笔订单详情
 // 来源: 买家或平台查询订单请求 orderv1.GetOrderRequest
-// 用于: 返回订单详情实体
+// 用于: 返回订单详情实体，校验买家资源所有权（防同店家内的跨买家水平越权）
 func (s *OrderService) GetOrder(ctx context.Context, req *orderv1.GetOrderRequest) (*orderv1.GetOrderResponse, error) {
 	id := strings.TrimSpace(req.GetId())
 	if id == "" {
@@ -243,6 +243,14 @@ func (s *OrderService) GetOrder(ctx context.Context, req *orderv1.GetOrderReques
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "order not found: %v", err)
 	}
+
+	// Step 5.1.1: 显式校验买家所有权 (显式比对 callerID 与 ord.UserId，平台与管理面特权放行)
+	// 来源: ord.GetUserId() 与上下文 x-user-id
+	// 用于: 彻底拦截同店家内的水平越权，确保买家只能看自己的订单
+	if err := authz.RequireOwnership(ctx, ord.GetUserId(), authz.PermOrderRead); err != nil {
+		return nil, err
+	}
+
 	return &orderv1.GetOrderResponse{Order: ord}, nil
 }
 
@@ -269,7 +277,7 @@ func (s *OrderService) ListOrders(ctx context.Context, req *orderv1.ListOrdersRe
 
 // Step 5.3: 买家查询主订单详情
 // 来源: 买家合并支付聚合订单详情 orderv1.GetParentOrderRequest
-// 用于: 返回包含下辖子订单图谱的主订单详情
+// 用于: 返回包含下辖子订单图谱的主订单详情，校验买家资源所有权
 func (s *OrderService) GetParentOrder(ctx context.Context, req *orderv1.GetParentOrderRequest) (*orderv1.GetParentOrderResponse, error) {
 	id := strings.TrimSpace(req.GetId())
 	if id == "" {
@@ -280,6 +288,14 @@ func (s *OrderService) GetParentOrder(ctx context.Context, req *orderv1.GetParen
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "parent order not found: %v", err)
 	}
+
+	// Step 5.3.1: 显式校验主订单买家所有权
+	// 来源: po.GetUserId() 与上下文 x-user-id
+	// 用于: 拦截跨买家偷看他人主订单图谱
+	if err := authz.RequireOwnership(ctx, po.GetUserId(), authz.PermOrderRead); err != nil {
+		return nil, err
+	}
+
 	return &orderv1.GetParentOrderResponse{ParentOrder: po}, nil
 }
 
@@ -345,6 +361,19 @@ func (s *OrderService) ConfirmReceipt(ctx context.Context, req *orderv1.ConfirmR
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
 
+	// Step 6.2.1: 显式校验确认收货归属权（买家本人或特权放行）
+	// 来源: 子订单或旧版单体订单的 UserId
+	// 用于: 防止其他买家冒领确认他人订单
+	if co, err := s.uc.GetChildOrder(ctx, id); err == nil && co != nil {
+		if oErr := authz.RequireOwnership(ctx, co.GetUserId(), authz.PermOrderManage); oErr != nil {
+			return nil, oErr
+		}
+	} else if ord, oErr := s.uc.GetOrder(ctx, id); oErr == nil && ord != nil {
+		if aErr := authz.RequireOwnership(ctx, ord.GetUserId(), authz.PermOrderManage); aErr != nil {
+			return nil, aErr
+		}
+	}
+
 	resp, err := s.uc.ConfirmReceipt(ctx, id)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "confirm receipt failed: %v", err)
@@ -359,6 +388,19 @@ func (s *OrderService) CancelOrder(ctx context.Context, req *orderv1.CancelOrder
 	id := strings.TrimSpace(req.GetId())
 	if id == "" {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+
+	// Step 7.1.1: 显式校验取消操作所有权
+	// 来源: 订单或主订单的 UserId
+	// 用于: 杜绝恶意买家伪造 ID 越权取消他人订单
+	if ord, err := s.uc.GetOrder(ctx, id); err == nil && ord != nil {
+		if oErr := authz.RequireOwnership(ctx, ord.GetUserId(), authz.PermOrderManage); oErr != nil {
+			return nil, oErr
+		}
+	} else if po, pErr := s.uc.GetParentOrder(ctx, id); pErr == nil && po != nil {
+		if oErr := authz.RequireOwnership(ctx, po.GetUserId(), authz.PermOrderManage); oErr != nil {
+			return nil, oErr
+		}
 	}
 
 	if err := s.uc.CancelOrder(ctx, id, req.GetReason()); err != nil {

@@ -1,4 +1,4 @@
-﻿package biz
+package biz
 
 import (
 	"context"
@@ -850,6 +850,10 @@ func (uc *OrderUsecase) ListOrders(ctx context.Context, userID, status string, p
 
 func (uc *OrderUsecase) GetParentOrder(ctx context.Context, id string) (*orderv1.ParentOrder, error) {
 	return uc.repo.GetParentOrder(ctx, id)
+}
+
+func (uc *OrderUsecase) GetChildOrder(ctx context.Context, id string) (*orderv1.ChildOrder, error) {
+	return uc.repo.GetChildOrder(ctx, id)
 }
 
 func (uc *OrderUsecase) ListParentOrders(ctx context.Context, userID, status string, page, pageSize int) ([]*orderv1.ParentOrder, int64, error) {

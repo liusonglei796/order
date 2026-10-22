@@ -215,3 +215,63 @@ func TestOrderService_AfterSalesFlow(t *testing.T) {
 	assert.True(t, auditResp.Success)
 	assert.Equal(t, "REFUNDED", auditResp.Status)
 }
+
+// Step 4.1: 验证同店家内跨买家水平越权防护 (IDOR 防护)
+// 来源: 买家 A 与买家 B 在同一店家 (tenant-test) 内购物
+// 用于: 验证买家 B 无法通过穷举或已知 orderID 读取或操作买家 A 的订单
+func TestOrderService_HorizontalOwnershipDefense(t *testing.T) {
+	repo := data.NewMemoryRepository()
+	splitter := biz.NewOrderSplitter(nil, nil)
+	logger := log.DefaultLogger
+	uc := biz.NewOrderUsecase(repo, splitter, nil, nil, nil, nil, logger)
+	svc := NewOrderService(uc, logger)
+
+	ctxBuyerA := testContext("buyer-A", "tenant-test")
+	ctxBuyerB := testContext("buyer-B", "tenant-test")
+	ctxPlatform := testContext("admin-root", "platform")
+
+	// 买家 A 先加购商品
+	_, err := svc.AddCartItem(ctxBuyerA, &orderv1.AddCartItemRequest{
+		SkuId:    "sku-201",
+		Quantity: 1,
+	})
+	require.NoError(t, err)
+
+	// 买家 A 准备结算
+	prepResp, err := svc.PrepareSettlement(ctxBuyerA, &orderv1.PrepareSettlementRequest{
+		SkuIds: []string{"sku-201"},
+	})
+	require.NoError(t, err)
+
+	createResp, err := svc.CreateOrder(ctxBuyerA, &orderv1.CreateOrderRequest{
+		SettlementToken: prepResp.SettlementToken,
+		Items: []*orderv1.CreateOrderItemParam{
+			{SkuId: "sku-201", Quantity: 1},
+		},
+		ReceiverName:    "买家A",
+		ReceiverPhone:   "13800000000",
+		ReceiverAddress: "北京市海淀区",
+	})
+	require.NoError(t, err)
+	orderID := createResp.Order.Id
+
+	// 1. 买家 A 正常查询 -> 成功
+	getA, err := svc.GetOrder(ctxBuyerA, &orderv1.GetOrderRequest{Id: orderID})
+	require.NoError(t, err)
+	assert.Equal(t, orderID, getA.Order.Id)
+
+	// 2. 买家 B (同店家) 试图越权查询买家 A 的订单 -> 必须被拒绝 (PermissionDenied)
+	_, errB := svc.GetOrder(ctxBuyerB, &orderv1.GetOrderRequest{Id: orderID})
+	require.Error(t, errB)
+	assert.Contains(t, errB.Error(), "ownership check failed")
+
+	// 3. 买家 B 试图越权取消买家 A 的订单 -> 必须被拒绝
+	_, cancelErrB := svc.CancelOrder(ctxBuyerB, &orderv1.CancelOrderRequest{Id: orderID})
+	require.Error(t, cancelErrB)
+	assert.Contains(t, cancelErrB.Error(), "ownership check failed")
+
+	// 4. 平台治理面 (tenant: platform) 特权查询 -> 放行
+	getP, errP := svc.GetOrder(ctxPlatform, &orderv1.GetOrderRequest{Id: orderID})
+	require.NoError(t, errP)
+	assert.Equal(t, orderID, getP.Order.Id)
+}
