@@ -1,0 +1,18 @@
+server:
+  grpc:
+    addr: 0.0.0.0:50054
+    timeout: 5s
+data:
+  database:
+    driver: mysql
+    source: "root:root123456@tcp(127.0.0.1:3306)/mall_order?charset=utf8mb4&parseTime=True&loc=Local"
+  redis:
+    addr: 127.0.0.1:6379
+    password: ""
+    db: 0
+order:
+  dtm_server: "127.0.0.1:36790"
+  product_grpc_addr: "127.0.0.1:50052"
+  inventory_grpc_addr: "127.0.0.1:50053"
+  wallet_grpc_addr: "127.0.0.1:50055"
+  order_grpc_addr: "127.0.0.1:50054"

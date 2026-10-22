@@ -1,0 +1,412 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "inventory/v1/inventory.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "InventoryService",
+      "description": "InventoryService 提供多租户高并发库存查询、原子预扣、扣减与释放服务"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/admin/inventory/adjust": {
+      "post": {
+        "summary": "商户后台管理员调整物理库存 (入库/盘点，受 RBAC 保护)",
+        "operationId": "InventoryService_AdjustStock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AdjustStockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1AdjustStockRequest"
+            }
+          }
+        ],
+        "tags": [
+          "InventoryService"
+        ]
+      }
+    },
+    "/v1/inventory/batch": {
+      "post": {
+        "summary": "批量查询 SKU 库存",
+        "operationId": "InventoryService_BatchGetStock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1BatchGetStockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1BatchGetStockRequest"
+            }
+          }
+        ],
+        "tags": [
+          "InventoryService"
+        ]
+      }
+    },
+    "/v1/inventory/deduct": {
+      "post": {
+        "summary": "支付成功最终核销扣减库存 (由 Order 支付成功后调用)",
+        "operationId": "InventoryService_DeductStock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeductStockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1DeductStockRequest"
+            }
+          }
+        ],
+        "tags": [
+          "InventoryService"
+        ]
+      }
+    },
+    "/v1/inventory/release": {
+      "post": {
+        "summary": "超时或取消释放预扣库存 (由 Order 服务超时关单调用)",
+        "operationId": "InventoryService_ReleaseStock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ReleaseStockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1ReleaseStockRequest"
+            }
+          }
+        ],
+        "tags": [
+          "InventoryService"
+        ]
+      }
+    },
+    "/v1/inventory/reserve": {
+      "post": {
+        "summary": "下单原子预扣库存 (由 Order 服务调用)",
+        "operationId": "InventoryService_ReserveStock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ReserveStockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1ReserveStockRequest"
+            }
+          }
+        ],
+        "tags": [
+          "InventoryService"
+        ]
+      }
+    },
+    "/v1/inventory/{skuId}": {
+      "get": {
+        "summary": "查询单个 SKU 库存",
+        "operationId": "InventoryService_GetStock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetStockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "skuId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "InventoryService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1AdjustStockRequest": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "delta": {
+          "type": "string",
+          "format": "int64",
+          "title": "增加为正数，核减为负数"
+        },
+        "reason": {
+          "type": "string",
+          "title": "调整原因，如 \"采购入库\", \"盘点损耗\""
+        }
+      }
+    },
+    "v1AdjustStockResponse": {
+      "type": "object",
+      "properties": {
+        "stock": {
+          "$ref": "#/definitions/v1StockItem"
+        }
+      }
+    },
+    "v1BatchGetStockRequest": {
+      "type": "object",
+      "properties": {
+        "skuIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "v1BatchGetStockResponse": {
+      "type": "object",
+      "properties": {
+        "stocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1StockItem"
+          }
+        }
+      }
+    },
+    "v1DeductStockRequest": {
+      "type": "object",
+      "properties": {
+        "orderNo": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1StockItemDelta"
+          }
+        }
+      }
+    },
+    "v1DeductStockResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1GetStockResponse": {
+      "type": "object",
+      "properties": {
+        "stock": {
+          "$ref": "#/definitions/v1StockItem"
+        }
+      }
+    },
+    "v1ReleaseStockRequest": {
+      "type": "object",
+      "properties": {
+        "orderNo": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1StockItemDelta"
+          }
+        }
+      }
+    },
+    "v1ReleaseStockResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1ReserveStockRequest": {
+      "type": "object",
+      "properties": {
+        "orderNo": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1StockItemDelta"
+          }
+        }
+      }
+    },
+    "v1ReserveStockResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1StockItem": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "totalStock": {
+          "type": "string",
+          "format": "int64",
+          "title": "物理总库存"
+        },
+        "reservedStock": {
+          "type": "string",
+          "format": "int64",
+          "title": "预扣冻结库存"
+        },
+        "availableStock": {
+          "type": "string",
+          "format": "int64",
+          "title": "可用库存 = total - reserved"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "title": "单个 SKU 库存实体"
+    },
+    "v1StockItemDelta": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    }
+  }
+}

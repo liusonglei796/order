@@ -1,0 +1,577 @@
+﻿syntax = "proto3";
+
+package order.v1;
+
+option go_package = "order/gen/order/v1;orderv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+// OrderService 提供多租户购物车聚合、防重结算、订单状态机与支付履约
+service OrderService {
+  // --- 购物车管理 (Redis Hash 持久化 + 动态聚合商品价格) ---
+  rpc GetCart(GetCartRequest) returns (GetCartResponse) {
+    option (google.api.http) = {
+      get: "/v1/cart"
+    };
+  }
+
+  rpc AddCartItem(AddCartItemRequest) returns (AddCartItemResponse) {
+    option (google.api.http) = {
+      post: "/v1/cart/items"
+      body: "*"
+    };
+  }
+
+  rpc UpdateCartItem(UpdateCartItemRequest) returns (UpdateCartItemResponse) {
+    option (google.api.http) = {
+      put: "/v1/cart/items/{sku_id}"
+      body: "*"
+    };
+  }
+
+  rpc RemoveCartItem(RemoveCartItemRequest) returns (RemoveCartItemResponse) {
+    option (google.api.http) = {
+      delete: "/v1/cart/items/{sku_id}"
+    };
+  }
+
+  rpc ClearCart(ClearCartRequest) returns (ClearCartResponse) {
+    option (google.api.http) = {
+      delete: "/v1/cart"
+    };
+  }
+
+  // --- 交易与结算流程 ---
+  // 进入结算页，计算总价并生成防重 settlement_token
+  rpc PrepareSettlement(PrepareSettlementRequest) returns (PrepareSettlementResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders/settlement"
+      body: "*"
+    };
+  }
+
+  // 提交订单 (校验防重 token -> 原子预扣库存 -> 创建订单)
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders"
+      body: "*"
+    };
+  }
+
+  // 买家查询单个订单详情 (必须校验所有权)
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse) {
+    option (google.api.http) = {
+      get: "/v1/orders/{id}"
+    };
+  }
+
+  // 买家查询自身订单列表
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse) {
+    option (google.api.http) = {
+      get: "/v1/orders"
+    };
+  }
+
+  // 买家主动取消未支付订单
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders/{id}/cancel"
+      body: "*"
+    };
+  }
+
+  // 支付通道 (Mock 支付闭环，验证通过后转为 PAID 并核销库存)
+  rpc PayOrder(PayOrderRequest) returns (PayOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders/{id}/pay"
+      body: "*"
+    };
+  }
+
+  // DTM 二阶段消息 QueryPrepared 回调 (供 DTM 协调器反查本地事务是否已提交)
+  rpc QueryPrepared(google.protobuf.Empty) returns (google.protobuf.Empty);
+
+  // --- 商户后台管理 ---
+  // 商户查询租户所有订单
+  rpc AdminListOrders(AdminListOrdersRequest) returns (AdminListOrdersResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/orders"
+    };
+  }
+
+  // 商户发货履约
+  rpc AdminShipOrder(AdminShipOrderRequest) returns (AdminShipOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/orders/{id}/ship"
+      body: "*"
+    };
+  }
+
+  // 买家确认收货 (子订单履约完成，调用 WalletService 自动分账清算)
+  rpc ConfirmReceipt(ConfirmReceiptRequest) returns (ConfirmReceiptResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders/{id}/confirm-receipt"
+      body: "*"
+    };
+  }
+
+  // --- 主订单检索 (买家维度聚合支付) ---
+  rpc GetParentOrder(GetParentOrderRequest) returns (GetParentOrderResponse) {
+    option (google.api.http) = {
+      get: "/v1/parent-orders/{id}"
+    };
+  }
+
+  rpc ListParentOrders(ListParentOrdersRequest) returns (ListParentOrdersResponse) {
+    option (google.api.http) = {
+      get: "/v1/parent-orders"
+    };
+  }
+
+  // --- 售后与退款服务 (SKU 级粒度与子订单状态机) ---
+  // 买家发起售后申请 (支持仅退款 REFUND_ONLY 或退货退款 RETURN_AND_REFUND，支持精确 SKU 粒度)
+  rpc ApplyAfterSales(ApplyAfterSalesRequest) returns (ApplyAfterSalesResponse) {
+    option (google.api.http) = {
+      post: "/v1/after-sales"
+      body: "*"
+    };
+  }
+
+  // 商家审核售后申请 (同意 / 拒绝)
+  rpc AuditAfterSales(AuditAfterSalesRequest) returns (AuditAfterSalesResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/after-sales/{id}/audit"
+      body: "*"
+    };
+  }
+
+  // 买家填写退货物流运单
+  rpc BuyerReturnGoods(BuyerReturnGoodsRequest) returns (BuyerReturnGoodsResponse) {
+    option (google.api.http) = {
+      post: "/v1/after-sales/{id}/return"
+      body: "*"
+    };
+  }
+
+  // 商家确认收到退货并触发退款清算
+  rpc MerchantConfirmReturn(MerchantConfirmReturnRequest) returns (MerchantConfirmReturnResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/after-sales/{id}/confirm-return"
+      body: "*"
+    };
+  }
+
+  // 买家撤销售后申请
+  rpc CancelAfterSales(CancelAfterSalesRequest) returns (CancelAfterSalesResponse) {
+    option (google.api.http) = {
+      post: "/v1/after-sales/{id}/cancel"
+      body: "*"
+    };
+  }
+
+  // 查询单个售后单详情
+  rpc GetAfterSales(GetAfterSalesRequest) returns (GetAfterSalesResponse) {
+    option (google.api.http) = {
+      get: "/v1/after-sales/{id}"
+    };
+  }
+
+  // 买家查询自身售后单列表
+  rpc ListAfterSales(ListAfterSalesRequest) returns (ListAfterSalesResponse) {
+    option (google.api.http) = {
+      get: "/v1/after-sales"
+    };
+  }
+
+  // 商家查询租户售后单列表
+  rpc AdminListAfterSales(AdminListAfterSalesRequest) returns (AdminListAfterSalesResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/after-sales"
+    };
+  }
+}
+
+// 购物车展示项
+message CartItem {
+  string sku_id = 1;
+  int64 quantity = 2;
+  bool selected = 3;
+  string title = 4;
+  string image = 5;
+  string attrs_json = 6;
+  int64 price = 7;       // 实时单价 (分)
+  int64 subtotal = 8;    // 小计 (分) = price * quantity
+  bool available = 9;    // 是否可售
+  string tenant_id = 10; // 所属商家租户ID
+  string store_name = 11;// 店铺名称
+}
+
+// 订单明细项
+message OrderItem {
+  string id = 1;
+  string order_id = 2;
+  string sku_id = 3;
+  string title = 4;
+  string image = 5;
+  string attrs_json = 6;
+  int64 price = 7;               // 成交快照单价 (分)
+  int64 quantity = 8;
+  int64 subtotal = 9;            // 分
+  string tenant_id = 10;         // 所属商家租户ID
+  string parent_order_id = 11;   // 关联主订单ID
+  int64 original_price = 12;     // 原始单价 (分)
+  int64 allocated_discount = 13; // 分摊优惠总额 (分)
+  int64 realized_price = 14;     // 实付单价 (分)
+}
+
+// 子订单 (面向商家履约、发货、物流与售后)
+message ChildOrder {
+  string id = 1;
+  string parent_id = 2;          // 关联主订单 ID
+  string tenant_id = 3;          // 商家租户 ID
+  string order_no = 4;           // 子订单编号
+  string user_id = 5;            // 买家 ID
+  int64 total_amount = 6;        // 原始总金额 (分)
+  int64 discount_amount = 7;     // 分摊优惠总额 (分)
+  int64 pay_amount = 8;          // 实付金额 (分)
+  string status = 9;             // PENDING_PAYMENT, PAID, SHIPPED, COMPLETED, CANCELLED
+  string carrier = 10;           // 物流承运商
+  string tracking_no = 11;       // 运单号
+  int64 shipped_at = 12;         // 发货时间
+  int64 completed_at = 13;       // 确认收货时间
+  int64 created_at = 14;
+  repeated OrderItem items = 15;
+}
+
+// 主订单 (面向买家聚合支付与结算)
+message ParentOrder {
+  string id = 1;
+  string order_no = 2;
+  string user_id = 3;
+  int64 total_amount = 4;        // 全店原始总额 (分)
+  int64 discount_amount = 5;     // 跨店满减/优惠总额 (分)
+  int64 pay_amount = 6;          // 最终应付总额 (分)
+  string status = 7;             // PENDING_PAYMENT, PAID, CANCELLED
+  string receiver_name = 8;
+  string receiver_phone = 9;
+  string receiver_address = 10;
+  int64 expire_at = 11;          // 支付截止时间
+  int64 paid_at = 12;
+  int64 created_at = 13;
+  repeated ChildOrder child_orders = 14;
+  string tenant_id = 15;    // 归属租户 (multi-tenant isolation key)
+}
+
+// 结算预览分组 (按商家聚合)
+message StoreSettlementGroup {
+  string tenant_id = 1;
+  string store_name = 2;
+  repeated CartItem items = 3;
+  int64 total_amount = 4;
+  int64 discount_amount = 5;
+  int64 pay_amount = 6;
+}
+
+// 订单主体 (保留兼容)
+message Order {
+  string id = 1;
+  string tenant_id = 2;
+  string order_no = 3;
+  string user_id = 4;
+  int64 total_amount = 5;  // 订单总金额 (分)
+  int64 pay_amount = 6;    // 应付/实付金额 (分)
+  string status = 7;       // PENDING_PAYMENT, PAID, SHIPPED, COMPLETED, CANCELLED
+  string receiver_name = 8;
+  string receiver_phone = 9;
+  string receiver_address = 10;
+  int64 expire_at = 11;    // 支付超时 Unix 时间戳
+  int64 paid_at = 12;      // 支付时间
+  int64 shipped_at = 13;   // 发货时间
+  int64 created_at = 14;
+  repeated OrderItem items = 15;
+  string parent_id = 16;
+}
+
+message GetCartRequest {}
+
+message GetCartResponse {
+  repeated CartItem items = 1;
+  int64 total_amount = 2;  // 勾选商品总额 (分)
+  int64 total_count = 3;   // 勾选商品总件数
+}
+
+message AddCartItemRequest {
+  string sku_id = 1;
+  int64 quantity = 2;
+}
+
+message AddCartItemResponse {
+  bool success = 1;
+}
+
+message UpdateCartItemRequest {
+  string sku_id = 1;
+  int64 quantity = 2;
+  bool selected = 3;
+}
+
+message UpdateCartItemResponse {
+  bool success = 1;
+}
+
+message RemoveCartItemRequest {
+  string sku_id = 1;
+}
+
+message RemoveCartItemResponse {
+  bool success = 1;
+}
+
+message ClearCartRequest {}
+
+message ClearCartResponse {
+  bool success = 1;
+}
+
+message PrepareSettlementRequest {
+  repeated string sku_ids = 1; // 选中的 SKU，留空默认勾选购物车全部
+}
+
+message PrepareSettlementResponse {
+  string settlement_token = 1; // 防重令牌 (有效期 30 分钟)
+  repeated CartItem items = 2;
+  int64 total_amount = 3;      // 原始商品总额 (分)
+  repeated StoreSettlementGroup store_groups = 4; // 按商家拆单预览
+  int64 total_discount = 5;    // 跨店满减/优惠总额 (分)
+  int64 pay_amount = 6;        // 最终应付金额 (分)
+}
+
+message CreateOrderItemParam {
+  string sku_id = 1;
+  int64 quantity = 2;
+}
+
+message CreateOrderRequest {
+  string settlement_token = 1; // 防重令牌 (必填，单次消费)
+  repeated CreateOrderItemParam items = 2;
+  string receiver_name = 3;
+  string receiver_phone = 4;
+  string receiver_address = 5;
+}
+
+message CreateOrderResponse {
+  Order order = 1;
+  ParentOrder parent_order = 2;
+  repeated ChildOrder child_orders = 3;
+}
+
+message GetOrderRequest {
+  string id = 1;
+}
+
+message GetOrderResponse {
+  Order order = 1;
+}
+
+message ListOrdersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string status = 3;
+}
+
+message ListOrdersResponse {
+  repeated Order orders = 1;
+  int64 total = 2;
+}
+
+message CancelOrderRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+message CancelOrderResponse {
+  bool success = 1;
+}
+
+message PayOrderRequest {
+  string id = 1;
+  string pay_channel = 2; // MOCK_ALIPAY, MOCK_WECHAT
+}
+
+message PayOrderResponse {
+  bool success = 1;
+  string status = 2;
+}
+
+message AdminListOrdersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string status = 3;
+}
+
+message AdminListOrdersResponse {
+  repeated Order orders = 1;
+  int64 total = 2;
+}
+
+message AdminShipOrderRequest {
+  string id = 1;
+  string tracking_no = 2;
+  string carrier = 3;
+}
+
+message AdminShipOrderResponse {
+  bool success = 1;
+}
+
+message GetParentOrderRequest {
+  string id = 1;
+}
+
+message GetParentOrderResponse {
+  ParentOrder parent_order = 1;
+}
+
+message ListParentOrdersRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string status = 3;
+}
+
+message ListParentOrdersResponse {
+  repeated ParentOrder parent_orders = 1;
+  int64 total = 2;
+}
+
+message ConfirmReceiptRequest {
+  string id = 1; // 子订单 ID
+}
+
+message ConfirmReceiptResponse {
+  bool success = 1;
+  string order_id = 2;
+  string status = 3;
+  int64 settled_amount = 4;
+  int64 commission_amount = 5;
+}
+
+// 售后单商品明细项
+message AfterSalesItem {
+  string sku_id = 1;
+  int64 quantity = 2;
+  int64 realized_price = 3;    // 实付单价 (分)
+  int64 refund_amount = 4;     // 该项退款金额 (分)
+}
+
+// 售后申请明细单
+message AfterSalesOrder {
+  string id = 1;
+  string after_sales_no = 2;
+  string child_order_id = 3;
+  string child_order_no = 4;
+  string parent_order_id = 5;
+  string tenant_id = 6;
+  string user_id = 7;
+  string type = 8;             // REFUND_ONLY, RETURN_AND_REFUND
+  string status = 9;           // APPLIED, MERCHANT_APPROVED, BUYER_RETURNED, REFUNDED, MERCHANT_REJECTED, CANCELLED
+  int64 refund_amount = 10;    // 总退款金额 (分)
+  string reason = 11;          // 申请理由
+  string reject_reason = 12;   // 拒绝理由
+  string return_carrier = 13;  // 退货承运商
+  string return_tracking_no = 14; // 退货单号
+  int64 created_at = 15;
+  int64 updated_at = 16;
+  repeated AfterSalesItem items = 17;
+}
+
+message ApplyAfterSalesItemParam {
+  string sku_id = 1;
+  int64 quantity = 2;
+}
+
+message ApplyAfterSalesRequest {
+  string child_order_id = 1;
+  string type = 2;             // REFUND_ONLY, RETURN_AND_REFUND
+  string reason = 3;
+  repeated ApplyAfterSalesItemParam items = 4; // 若为空则整单退款
+}
+
+message ApplyAfterSalesResponse {
+  bool success = 1;
+  AfterSalesOrder after_sales = 2;
+}
+
+message AuditAfterSalesRequest {
+  string id = 1;
+  bool approved = 2;
+  string reject_reason = 3;
+}
+
+message AuditAfterSalesResponse {
+  bool success = 1;
+  string status = 2;
+  int64 refund_amount = 3;     // 若为 REFUND_ONLY 且同意，立即退款
+}
+
+message BuyerReturnGoodsRequest {
+  string id = 1;
+  string carrier = 2;
+  string tracking_no = 3;
+}
+
+message BuyerReturnGoodsResponse {
+  bool success = 1;
+  string status = 2;
+}
+
+message MerchantConfirmReturnRequest {
+  string id = 1;
+}
+
+message MerchantConfirmReturnResponse {
+  bool success = 1;
+  string status = 2;
+  int64 refund_amount = 3;
+}
+
+message CancelAfterSalesRequest {
+  string id = 1;
+}
+
+message CancelAfterSalesResponse {
+  bool success = 1;
+  string status = 2;
+}
+
+message GetAfterSalesRequest {
+  string id = 1;
+}
+
+message GetAfterSalesResponse {
+  AfterSalesOrder after_sales = 1;
+}
+
+message ListAfterSalesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string status = 3;
+}
+
+message ListAfterSalesResponse {
+  repeated AfterSalesOrder after_sales_orders = 1;
+  int64 total = 2;
+}
+
+message AdminListAfterSalesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string status = 3;
+}
+
+message AdminListAfterSalesResponse {
+  repeated AfterSalesOrder after_sales_orders = 1;
+  int64 total = 2;
+}
+
+

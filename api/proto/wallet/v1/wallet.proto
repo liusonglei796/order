@@ -1,0 +1,177 @@
+﻿syntax = "proto3";
+
+package wallet.v1;
+
+option go_package = "order/gen/wallet/v1;walletv1";
+
+import "google/api/annotations.proto";
+
+// WalletService 提供平台担保资金托管、复式记账中台、商户数字钱包与分账清算
+service WalletService {
+  // 1. 担保货款入账 (支付成功后由 Order 服务调用，资金进入平台担保负债账户)
+  rpc DepositEscrow(DepositEscrowRequest) returns (DepositEscrowResponse) {
+    option (google.api.http) = {
+      post: "/v1/wallet/escrow/deposit"
+      body: "*"
+    };
+  }
+
+  // 2. 确认收货自动清算 (买家确认收货或系统自动完成履约后调用，扣除平台佣金并结算商户钱包)
+  rpc SettleChildOrder(SettleChildOrderRequest) returns (SettleChildOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/wallet/escrow/settle"
+      body: "*"
+    };
+  }
+
+  // 3. 商户端查询自身数字钱包资产 (可用余额、冻结资金、累计清算等)
+  rpc GetWallet(GetWalletRequest) returns (GetWalletResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/wallet"
+    };
+  }
+
+  // 4. 商户与财务端查询双式记账日记账流水 (满足财务审计与对账需求)
+  rpc ListJournalEntries(ListJournalEntriesRequest) returns (ListJournalEntriesResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/wallet/journals"
+    };
+  }
+
+  // 5. 担保货款售后退款冲正 (售后退款时调用，根据是否已清算执行原路冲正记账)
+  rpc RefundEscrow(RefundEscrowRequest) returns (RefundEscrowResponse) {
+    option (google.api.http) = {
+      post: "/v1/wallet/escrow/refund"
+      body: "*"
+    };
+  }
+
+  // 6. 商户数字钱包提现出金 (商户发起可用余额提现，原子扣减商户可用资产并记账出金)
+  rpc Withdraw(WithdrawRequest) returns (WithdrawResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/wallet/withdraw"
+      body: "*"
+    };
+  }
+}
+
+// 复式记账分录明细行 (Debit / Credit)
+message JournalLine {
+  string id = 1;
+  string entry_id = 2;
+  string account = 3;   // bank_channel_receivable, platform_escrow_liability, platform_commission_revenue, merchant_available_wallet, merchant_frozen_guarantee
+  string direction = 4; // DEBIT (借), CREDIT (贷)
+  int64 amount = 5;     // 金额 (分)
+  string tenant_id = 6; // 归属租户/平台
+}
+
+// 复式记账日记账头 (必须满足 Sum(Debits) == Sum(Credits))
+message JournalEntry {
+  string id = 1;
+  string entry_no = 2;
+  string biz_type = 3;     // ESCROW_DEPOSIT, RECEIPT_SETTLEMENT, AFTER_SALES_REFUND, WITHDRAWAL
+  string biz_id = 4;       // 业务关联单号 (order_id, refund_id 等)
+  string description = 5;
+  int64 total_debit = 6;   // 借方总额 (分)
+  int64 total_credit = 7;  // 贷方总额 (分)
+  int64 created_at = 8;
+  repeated JournalLine lines = 9;
+  string tenant_id = 10;  // 归属租户 (multi-tenant isolation key)
+}
+
+// 商户数字钱包
+message Wallet {
+  string tenant_id = 1;
+  int64 available_balance = 2;    // 可提现/可用余额 (分)
+  int64 frozen_balance = 3;       // 售后冻结/保证金余额 (分)
+  int64 total_settled = 4;        // 历史累计已分账清算净收入 (分)
+  int64 total_commission_paid = 5;// 历史累计扣减的平台抽成佣金 (分)
+  int64 updated_at = 6;
+  int64 created_at = 7;           // 钱包账户开立时间戳
+}
+
+message DepositEscrowRequest {
+  string order_id = 1;
+  string order_no = 2;
+  string user_id = 3;
+  string tenant_id = 4; // 如果是整单聚合支付可传 platform，若是分店单传对应 tenant_id
+  int64 amount = 5;     // 支付总金额 (分)
+  string pay_channel = 6;// MOCK_ALIPAY, MOCK_WECHAT
+}
+
+message DepositEscrowResponse {
+  bool success = 1;
+  string entry_id = 2;
+  string entry_no = 3;
+}
+
+message SettleChildOrderRequest {
+  string child_order_id = 1;
+  string child_order_no = 2;
+  string tenant_id = 3;        // 结算目标商户
+  int64 gross_amount = 4;      // 实付总金额 (分)
+  int32 take_rate_bps = 5;     // 平台抽成基点 (例如 300 代表 3.00%, 留空默认 300)
+}
+
+message SettleChildOrderResponse {
+  bool success = 1;
+  string entry_id = 2;
+  string entry_no = 3;
+  int64 commission_amount = 4; // 平台抽佣 (分)
+  int64 settled_amount = 5;    // 商户实收 (分) = gross - commission
+}
+
+message GetWalletRequest {
+  string tenant_id = 1; // 留空自动解析元数据中的 x-tenant-id
+}
+
+message GetWalletResponse {
+  Wallet wallet = 1;
+}
+
+message ListJournalEntriesRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string biz_type = 3;
+  string biz_id = 4;
+  string tenant_id = 5; // 可选: 指定租户查询 (留空提取上下文租户)
+}
+
+message ListJournalEntriesResponse {
+  repeated JournalEntry entries = 1;
+  int64 total = 2;
+}
+
+message RefundEscrowRequest {
+  string order_id = 1;
+  string refund_id = 2;
+  string tenant_id = 3;
+  int64 amount = 4;        // 退款金额 (分)
+  string reason = 5;       // 退款原因
+  bool is_settled = 6;     // 是否已结算入商户钱包 (未结算从平台担保负债退，已结算从商户钱包追回)
+  int32 take_rate_bps = 7; // 已结算时平台退回的抽佣比例 (默认 300 bps 即 3.00%)
+}
+
+message RefundEscrowResponse {
+  bool success = 1;
+  string entry_id = 2;
+  string entry_no = 3;
+  int64 refund_amount = 4;
+}
+
+message WithdrawRequest {
+  string tenant_id = 1;      // 提现商户租户ID (留空默认提取上下文)
+  int64 amount = 2;          // 提现金额 (分, > 0)
+  string channel = 3;        // 出金代付渠道 (如 BANK_TRANSFER, ALIPAY_PAYOUT, WECHAT_PAYOUT)
+  string account_target = 4; // 提现目标账号 (如对公银行卡号、支付宝账户)
+  string remark = 5;         // 提现备注/原因
+}
+
+message WithdrawResponse {
+  bool success = 1;
+  string entry_id = 2;
+  string entry_no = 3;
+  int64 withdraw_amount = 4;
+  int64 remaining_balance = 5;
+}
+

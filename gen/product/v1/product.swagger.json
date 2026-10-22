@@ -1,0 +1,656 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "product/v1/product.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "ProductService",
+      "description": "ProductService 提供多租户商品（SPU/SKU）检索与商户管理"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/admin/products": {
+      "post": {
+        "summary": "商户端：创建商品 SPU",
+        "operationId": "ProductService_CreateSPU",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateSPUResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateSPURequest"
+            }
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    },
+    "/v1/admin/products/{id}": {
+      "put": {
+        "summary": "商户端：更新商品 SPU",
+        "operationId": "ProductService_UpdateSPU",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateSPUResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ProductServiceUpdateSPUBody"
+            }
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    },
+    "/v1/admin/skus": {
+      "post": {
+        "summary": "商户端：为 SPU 创建规格 SKU",
+        "operationId": "ProductService_CreateSKU",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateSKUResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateSKURequest"
+            }
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    },
+    "/v1/admin/skus/{id}": {
+      "put": {
+        "summary": "商户端：修改 SKU 价格与规格",
+        "operationId": "ProductService_UpdateSKU",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateSKUResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ProductServiceUpdateSKUBody"
+            }
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    },
+    "/v1/products": {
+      "get": {
+        "summary": "买家端：分页检索商品列表",
+        "operationId": "ProductService_ListSPUs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListSPUsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    },
+    "/v1/products/{id}": {
+      "get": {
+        "summary": "买家端：查询商品 SPU 详情（包含其所有可售 SKU 规格列表）",
+        "operationId": "ProductService_GetSPU",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetSPUResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    },
+    "/v1/skus/batch": {
+      "post": {
+        "summary": "批量根据 SKU ID 查询信息（供购物车、订单服务动态获取最新价格与属性）",
+        "operationId": "ProductService_BatchGetSKUs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1BatchGetSKUsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1BatchGetSKUsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    },
+    "/v1/skus/{id}": {
+      "get": {
+        "summary": "内部与买家：查询单个 SKU",
+        "operationId": "ProductService_GetSKU",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetSKUResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "ProductService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "ProductServiceUpdateSKUBody": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "attrsJson": {
+          "type": "string"
+        },
+        "price": {
+          "type": "string",
+          "format": "int64"
+        },
+        "originPrice": {
+          "type": "string",
+          "format": "int64"
+        },
+        "barcode": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "ProductServiceUpdateSPUBody": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "subTitle": {
+          "type": "string"
+        },
+        "categoryId": {
+          "type": "string"
+        },
+        "brand": {
+          "type": "string"
+        },
+        "mainImage": {
+          "type": "string"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1BatchGetSKUsRequest": {
+      "type": "object",
+      "properties": {
+        "skuIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "v1BatchGetSKUsResponse": {
+      "type": "object",
+      "properties": {
+        "skus": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1SKU"
+          }
+        }
+      }
+    },
+    "v1CreateSKURequest": {
+      "type": "object",
+      "properties": {
+        "spuId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "attrsJson": {
+          "type": "string"
+        },
+        "price": {
+          "type": "string",
+          "format": "int64"
+        },
+        "originPrice": {
+          "type": "string",
+          "format": "int64"
+        },
+        "barcode": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CreateSKUResponse": {
+      "type": "object",
+      "properties": {
+        "sku": {
+          "$ref": "#/definitions/v1SKU"
+        }
+      }
+    },
+    "v1CreateSPURequest": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "subTitle": {
+          "type": "string"
+        },
+        "categoryId": {
+          "type": "string"
+        },
+        "brand": {
+          "type": "string"
+        },
+        "mainImage": {
+          "type": "string"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CreateSPUResponse": {
+      "type": "object",
+      "properties": {
+        "spu": {
+          "$ref": "#/definitions/v1SPU"
+        }
+      }
+    },
+    "v1GetSKUResponse": {
+      "type": "object",
+      "properties": {
+        "sku": {
+          "$ref": "#/definitions/v1SKU"
+        }
+      }
+    },
+    "v1GetSPUResponse": {
+      "type": "object",
+      "properties": {
+        "spu": {
+          "$ref": "#/definitions/v1SPU"
+        }
+      }
+    },
+    "v1ListSPUsResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1SPU"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1SKU": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "spuId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "attrsJson": {
+          "type": "string",
+          "title": "JSON 规格键值，如 {\"颜色\":\"暗夜黑\",\"存储\":\"256GB\"}"
+        },
+        "price": {
+          "type": "string",
+          "format": "int64",
+          "title": "售价，以分为单位 (100 = 1.00元)"
+        },
+        "originPrice": {
+          "type": "string",
+          "format": "int64",
+          "title": "划线原价"
+        },
+        "barcode": {
+          "type": "string",
+          "title": "条形码"
+        },
+        "image": {
+          "type": "string",
+          "title": "SKU 主图"
+        },
+        "status": {
+          "type": "integer",
+          "format": "int32",
+          "title": "1: 正常, 2: 停售"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "title": "SKU 核心模型（价格使用 int64 分存储）"
+    },
+    "v1SPU": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "subTitle": {
+          "type": "string"
+        },
+        "categoryId": {
+          "type": "string"
+        },
+        "brand": {
+          "type": "string"
+        },
+        "mainImage": {
+          "type": "string"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer",
+          "format": "int32",
+          "title": "1: 上架, 2: 下架"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "skus": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1SKU"
+          }
+        }
+      },
+      "title": "SPU 核心模型"
+    },
+    "v1UpdateSKUResponse": {
+      "type": "object",
+      "properties": {
+        "sku": {
+          "$ref": "#/definitions/v1SKU"
+        }
+      }
+    },
+    "v1UpdateSPUResponse": {
+      "type": "object",
+      "properties": {
+        "spu": {
+          "$ref": "#/definitions/v1SPU"
+        }
+      }
+    }
+  }
+}

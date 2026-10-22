@@ -1,0 +1,199 @@
+﻿syntax = "proto3";
+
+package product.v1;
+
+option go_package = "order/gen/product/v1;productv1";
+
+import "google/api/annotations.proto";
+
+// ProductService 提供多租户商品（SPU/SKU）检索与商户管理
+service ProductService {
+  // 买家端：查询商品 SPU 详情（包含其所有可售 SKU 规格列表）
+  rpc GetSPU(GetSPURequest) returns (GetSPUResponse) {
+    option (google.api.http) = {
+      get: "/v1/products/{id}"
+    };
+  }
+
+  // 买家端：分页检索商品列表
+  rpc ListSPUs(ListSPUsRequest) returns (ListSPUsResponse) {
+    option (google.api.http) = {
+      get: "/v1/products"
+    };
+  }
+
+  // 内部与买家：查询单个 SKU
+  rpc GetSKU(GetSKURequest) returns (GetSKUResponse) {
+    option (google.api.http) = {
+      get: "/v1/skus/{id}"
+    };
+  }
+
+  // 批量根据 SKU ID 查询信息（供购物车、订单服务动态获取最新价格与属性）
+  rpc BatchGetSKUs(BatchGetSKUsRequest) returns (BatchGetSKUsResponse) {
+    option (google.api.http) = {
+      post: "/v1/skus/batch"
+      body: "*"
+    };
+  }
+
+  // 商户端：创建商品 SPU
+  rpc CreateSPU(CreateSPURequest) returns (CreateSPUResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/products"
+      body: "*"
+    };
+  }
+
+  // 商户端：更新商品 SPU
+  rpc UpdateSPU(UpdateSPURequest) returns (UpdateSPUResponse) {
+    option (google.api.http) = {
+      put: "/v1/admin/products/{id}"
+      body: "*"
+    };
+  }
+
+  // 商户端：为 SPU 创建规格 SKU
+  rpc CreateSKU(CreateSKURequest) returns (CreateSKUResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/skus"
+      body: "*"
+    };
+  }
+
+  // 商户端：修改 SKU 价格与规格
+  rpc UpdateSKU(UpdateSKURequest) returns (UpdateSKUResponse) {
+    option (google.api.http) = {
+      put: "/v1/admin/skus/{id}"
+      body: "*"
+    };
+  }
+}
+
+// SPU 核心模型
+message SPU {
+  string id = 1;
+  string tenant_id = 2;
+  string title = 3;
+  string sub_title = 4;
+  string category_id = 5;
+  string brand = 6;
+  string main_image = 7;
+  repeated string images = 8;
+  string description = 9;
+  int32 status = 10; // 1: 上架, 2: 下架
+  int64 created_at = 11;
+  int64 updated_at = 12;
+  repeated SKU skus = 13;
+}
+
+// SKU 核心模型（价格使用 int64 分存储）
+message SKU {
+  string id = 1;
+  string tenant_id = 2;
+  string spu_id = 3;
+  string title = 4;
+  string attrs_json = 5; // JSON 规格键值，如 {"颜色":"暗夜黑","存储":"256GB"}
+  int64 price = 6;       // 售价，以分为单位 (100 = 1.00元)
+  int64 origin_price = 7;// 划线原价
+  string barcode = 8;    // 条形码
+  string image = 9;      // SKU 主图
+  int32 status = 10;     // 1: 正常, 2: 停售
+  int64 created_at = 11;
+  int64 updated_at = 12;
+}
+
+message GetSPURequest {
+  string id = 1;
+}
+
+message GetSPUResponse {
+  SPU spu = 1;
+}
+
+message ListSPUsRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string category_id = 3;
+  string keyword = 4;
+}
+
+message ListSPUsResponse {
+  repeated SPU items = 1;
+  int64 total = 2;
+}
+
+message GetSKURequest {
+  string id = 1;
+}
+
+message GetSKUResponse {
+  SKU sku = 1;
+}
+
+message BatchGetSKUsRequest {
+  repeated string sku_ids = 1;
+}
+
+message BatchGetSKUsResponse {
+  repeated SKU skus = 1;
+}
+
+message CreateSPURequest {
+  string title = 1;
+  string sub_title = 2;
+  string category_id = 3;
+  string brand = 4;
+  string main_image = 5;
+  repeated string images = 6;
+  string description = 7;
+}
+
+message CreateSPUResponse {
+  SPU spu = 1;
+}
+
+message UpdateSPURequest {
+  string id = 1;
+  string title = 2;
+  string sub_title = 3;
+  string category_id = 4;
+  string brand = 5;
+  string main_image = 6;
+  repeated string images = 7;
+  string description = 8;
+  int32 status = 9;
+}
+
+message UpdateSPUResponse {
+  SPU spu = 1;
+}
+
+message CreateSKURequest {
+  string spu_id = 1;
+  string title = 2;
+  string attrs_json = 3;
+  int64 price = 4;
+  int64 origin_price = 5;
+  string barcode = 6;
+  string image = 7;
+}
+
+message CreateSKUResponse {
+  SKU sku = 1;
+}
+
+message UpdateSKURequest {
+  string id = 1;
+  string title = 2;
+  string attrs_json = 3;
+  int64 price = 4;
+  int64 origin_price = 5;
+  string barcode = 6;
+  string image = 7;
+  int32 status = 8;
+}
+
+message UpdateSKUResponse {
+  SKU sku = 1;
+}

@@ -1,0 +1,43 @@
+﻿syntax = "proto3";
+package kratos.api;
+
+option go_package = "order/internal/conf;conf";
+
+import "google/protobuf/duration.proto";
+
+message Bootstrap {
+  Server server = 1;
+  Data data = 2;
+  Order order = 3;
+}
+
+message Server {
+  message GRPC {
+    string network = 1;
+    string addr = 2;
+    google.protobuf.Duration timeout = 3;
+  }
+  GRPC grpc = 1;
+}
+
+message Data {
+  message Database {
+    string driver = 1;
+    string source = 2;
+  }
+  message Redis {
+    string addr = 1;
+    string password = 2;
+    int32 db = 3;
+  }
+  Database database = 1;
+  Redis redis = 2;
+}
+
+message Order {
+  string dtm_server = 1;
+  string product_grpc_addr = 2;
+  string inventory_grpc_addr = 3;
+  string wallet_grpc_addr = 4;
+  string order_grpc_addr = 5;
+}

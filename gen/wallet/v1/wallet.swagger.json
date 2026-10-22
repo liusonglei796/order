@@ -1,0 +1,600 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "wallet/v1/wallet.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "WalletService",
+      "description": "WalletService 提供平台担保资金托管、复式记账中台、商户数字钱包与分账清算"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/admin/wallet": {
+      "get": {
+        "summary": "3. 商户端查询自身数字钱包资产 (可用余额、冻结资金、累计清算等)",
+        "operationId": "WalletService_GetWallet",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetWalletResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tenantId",
+            "description": "留空自动解析元数据中的 x-tenant-id",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "WalletService"
+        ]
+      }
+    },
+    "/v1/admin/wallet/journals": {
+      "get": {
+        "summary": "4. 商户与财务端查询双式记账日记账流水 (满足财务审计与对账需求)",
+        "operationId": "WalletService_ListJournalEntries",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListJournalEntriesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "bizType",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "bizId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "tenantId",
+            "description": "可选: 指定租户查询 (留空提取上下文租户)",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "WalletService"
+        ]
+      }
+    },
+    "/v1/admin/wallet/withdraw": {
+      "post": {
+        "summary": "6. 商户数字钱包提现出金 (商户发起可用余额提现，原子扣减商户可用资产并记账出金)",
+        "operationId": "WalletService_Withdraw",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1WithdrawResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1WithdrawRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletService"
+        ]
+      }
+    },
+    "/v1/wallet/escrow/deposit": {
+      "post": {
+        "summary": "1. 担保货款入账 (支付成功后由 Order 服务调用，资金进入平台担保负债账户)",
+        "operationId": "WalletService_DepositEscrow",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DepositEscrowResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1DepositEscrowRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletService"
+        ]
+      }
+    },
+    "/v1/wallet/escrow/refund": {
+      "post": {
+        "summary": "5. 担保货款售后退款冲正 (售后退款时调用，根据是否已清算执行原路冲正记账)",
+        "operationId": "WalletService_RefundEscrow",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RefundEscrowResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1RefundEscrowRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletService"
+        ]
+      }
+    },
+    "/v1/wallet/escrow/settle": {
+      "post": {
+        "summary": "2. 确认收货自动清算 (买家确认收货或系统自动完成履约后调用，扣除平台佣金并结算商户钱包)",
+        "operationId": "WalletService_SettleChildOrder",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1SettleChildOrderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1SettleChildOrderRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1DepositEscrowRequest": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "orderNo": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "如果是整单聚合支付可传 platform，若是分店单传对应 tenant_id"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "支付总金额 (分)"
+        },
+        "payChannel": {
+          "type": "string",
+          "title": "MOCK_ALIPAY, MOCK_WECHAT"
+        }
+      }
+    },
+    "v1DepositEscrowResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "entryNo": {
+          "type": "string"
+        }
+      }
+    },
+    "v1GetWalletResponse": {
+      "type": "object",
+      "properties": {
+        "wallet": {
+          "$ref": "#/definitions/v1Wallet"
+        }
+      }
+    },
+    "v1JournalEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "entryNo": {
+          "type": "string"
+        },
+        "bizType": {
+          "type": "string",
+          "title": "ESCROW_DEPOSIT, RECEIPT_SETTLEMENT, AFTER_SALES_REFUND, WITHDRAWAL"
+        },
+        "bizId": {
+          "type": "string",
+          "title": "业务关联单号 (order_id, refund_id 等)"
+        },
+        "description": {
+          "type": "string"
+        },
+        "totalDebit": {
+          "type": "string",
+          "format": "int64",
+          "title": "借方总额 (分)"
+        },
+        "totalCredit": {
+          "type": "string",
+          "format": "int64",
+          "title": "贷方总额 (分)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1JournalLine"
+          }
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "归属租户 (multi-tenant isolation key)"
+        }
+      },
+      "title": "复式记账日记账头 (必须满足 Sum(Debits) == Sum(Credits))"
+    },
+    "v1JournalLine": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "account": {
+          "type": "string",
+          "title": "bank_channel_receivable, platform_escrow_liability, platform_commission_revenue, merchant_available_wallet, merchant_frozen_guarantee"
+        },
+        "direction": {
+          "type": "string",
+          "title": "DEBIT (借), CREDIT (贷)"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "金额 (分)"
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "归属租户/平台"
+        }
+      },
+      "title": "复式记账分录明细行 (Debit / Credit)"
+    },
+    "v1ListJournalEntriesResponse": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1JournalEntry"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1RefundEscrowRequest": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string"
+        },
+        "refundId": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "退款金额 (分)"
+        },
+        "reason": {
+          "type": "string",
+          "title": "退款原因"
+        },
+        "isSettled": {
+          "type": "boolean",
+          "title": "是否已结算入商户钱包 (未结算从平台担保负债退，已结算从商户钱包追回)"
+        },
+        "takeRateBps": {
+          "type": "integer",
+          "format": "int32",
+          "title": "已结算时平台退回的抽佣比例 (默认 300 bps 即 3.00%)"
+        }
+      }
+    },
+    "v1RefundEscrowResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "entryNo": {
+          "type": "string"
+        },
+        "refundAmount": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1SettleChildOrderRequest": {
+      "type": "object",
+      "properties": {
+        "childOrderId": {
+          "type": "string"
+        },
+        "childOrderNo": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "结算目标商户"
+        },
+        "grossAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "实付总金额 (分)"
+        },
+        "takeRateBps": {
+          "type": "integer",
+          "format": "int32",
+          "title": "平台抽成基点 (例如 300 代表 3.00%, 留空默认 300)"
+        }
+      }
+    },
+    "v1SettleChildOrderResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "entryNo": {
+          "type": "string"
+        },
+        "commissionAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "平台抽佣 (分)"
+        },
+        "settledAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "商户实收 (分) = gross - commission"
+        }
+      }
+    },
+    "v1Wallet": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string"
+        },
+        "availableBalance": {
+          "type": "string",
+          "format": "int64",
+          "title": "可提现/可用余额 (分)"
+        },
+        "frozenBalance": {
+          "type": "string",
+          "format": "int64",
+          "title": "售后冻结/保证金余额 (分)"
+        },
+        "totalSettled": {
+          "type": "string",
+          "format": "int64",
+          "title": "历史累计已分账清算净收入 (分)"
+        },
+        "totalCommissionPaid": {
+          "type": "string",
+          "format": "int64",
+          "title": "历史累计扣减的平台抽成佣金 (分)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64",
+          "title": "钱包账户开立时间戳"
+        }
+      },
+      "title": "商户数字钱包"
+    },
+    "v1WithdrawRequest": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "title": "提现商户租户ID (留空默认提取上下文)"
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "title": "提现金额 (分, \u003e 0)"
+        },
+        "channel": {
+          "type": "string",
+          "title": "出金代付渠道 (如 BANK_TRANSFER, ALIPAY_PAYOUT, WECHAT_PAYOUT)"
+        },
+        "accountTarget": {
+          "type": "string",
+          "title": "提现目标账号 (如对公银行卡号、支付宝账户)"
+        },
+        "remark": {
+          "type": "string",
+          "title": "提现备注/原因"
+        }
+      }
+    },
+    "v1WithdrawResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "entryId": {
+          "type": "string"
+        },
+        "entryNo": {
+          "type": "string"
+        },
+        "withdrawAmount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "remainingBalance": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    }
+  }
+}

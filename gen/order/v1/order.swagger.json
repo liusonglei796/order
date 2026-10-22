@@ -1,0 +1,1855 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "order/v1/order.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "OrderService",
+      "description": "OrderService 提供多租户购物车聚合、防重结算、订单状态机与支付履约"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/admin/after-sales": {
+      "get": {
+        "summary": "商家查询租户售后单列表",
+        "operationId": "OrderService_AdminListAfterSales",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AdminListAfterSalesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/admin/after-sales/{id}/audit": {
+      "post": {
+        "summary": "商家审核售后申请 (同意 / 拒绝)",
+        "operationId": "OrderService_AuditAfterSales",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AuditAfterSalesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceAuditAfterSalesBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/admin/after-sales/{id}/confirm-return": {
+      "post": {
+        "summary": "商家确认收到退货并触发退款清算",
+        "operationId": "OrderService_MerchantConfirmReturn",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1MerchantConfirmReturnResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceMerchantConfirmReturnBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/admin/orders": {
+      "get": {
+        "summary": "--- 商户后台管理 ---\n商户查询租户所有订单",
+        "operationId": "OrderService_AdminListOrders",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AdminListOrdersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/admin/orders/{id}/ship": {
+      "post": {
+        "summary": "商户发货履约",
+        "operationId": "OrderService_AdminShipOrder",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AdminShipOrderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceAdminShipOrderBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/after-sales": {
+      "get": {
+        "summary": "买家查询自身售后单列表",
+        "operationId": "OrderService_ListAfterSales",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListAfterSalesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      },
+      "post": {
+        "summary": "--- 售后与退款服务 (SKU 级粒度与子订单状态机) ---\n买家发起售后申请 (支持仅退款 REFUND_ONLY 或退货退款 RETURN_AND_REFUND，支持精确 SKU 粒度)",
+        "operationId": "OrderService_ApplyAfterSales",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ApplyAfterSalesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1ApplyAfterSalesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/after-sales/{id}": {
+      "get": {
+        "summary": "查询单个售后单详情",
+        "operationId": "OrderService_GetAfterSales",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetAfterSalesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/after-sales/{id}/cancel": {
+      "post": {
+        "summary": "买家撤销售后申请",
+        "operationId": "OrderService_CancelAfterSales",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CancelAfterSalesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceCancelAfterSalesBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/after-sales/{id}/return": {
+      "post": {
+        "summary": "买家填写退货物流运单",
+        "operationId": "OrderService_BuyerReturnGoods",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1BuyerReturnGoodsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceBuyerReturnGoodsBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/cart": {
+      "get": {
+        "summary": "--- 购物车管理 (Redis Hash 持久化 + 动态聚合商品价格) ---",
+        "operationId": "OrderService_GetCart",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetCartResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "OrderService"
+        ]
+      },
+      "delete": {
+        "operationId": "OrderService_ClearCart",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ClearCartResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/cart/items": {
+      "post": {
+        "operationId": "OrderService_AddCartItem",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1AddCartItemResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1AddCartItemRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/cart/items/{skuId}": {
+      "delete": {
+        "operationId": "OrderService_RemoveCartItem",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1RemoveCartItemResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "skuId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      },
+      "put": {
+        "operationId": "OrderService_UpdateCartItem",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateCartItemResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "skuId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceUpdateCartItemBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/orders": {
+      "get": {
+        "summary": "买家查询自身订单列表",
+        "operationId": "OrderService_ListOrders",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListOrdersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      },
+      "post": {
+        "summary": "提交订单 (校验防重 token -\u003e 原子预扣库存 -\u003e 创建订单)",
+        "operationId": "OrderService_CreateOrder",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateOrderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateOrderRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/orders/settlement": {
+      "post": {
+        "summary": "--- 交易与结算流程 ---\n进入结算页，计算总价并生成防重 settlement_token",
+        "operationId": "OrderService_PrepareSettlement",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1PrepareSettlementResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1PrepareSettlementRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/orders/{id}": {
+      "get": {
+        "summary": "买家查询单个订单详情 (必须校验所有权)",
+        "operationId": "OrderService_GetOrder",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetOrderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/orders/{id}/cancel": {
+      "post": {
+        "summary": "买家主动取消未支付订单",
+        "operationId": "OrderService_CancelOrder",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CancelOrderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceCancelOrderBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/orders/{id}/confirm-receipt": {
+      "post": {
+        "summary": "买家确认收货 (子订单履约完成，调用 WalletService 自动分账清算)",
+        "operationId": "OrderService_ConfirmReceipt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ConfirmReceiptResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "description": "子订单 ID",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServiceConfirmReceiptBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/orders/{id}/pay": {
+      "post": {
+        "summary": "支付通道 (Mock 支付闭环，验证通过后转为 PAID 并核销库存)",
+        "operationId": "OrderService_PayOrder",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1PayOrderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrderServicePayOrderBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/parent-orders": {
+      "get": {
+        "operationId": "OrderService_ListParentOrders",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListParentOrdersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    },
+    "/v1/parent-orders/{id}": {
+      "get": {
+        "summary": "--- 主订单检索 (买家维度聚合支付) ---",
+        "operationId": "OrderService_GetParentOrder",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetParentOrderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrderService"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "OrderServiceAdminShipOrderBody": {
+      "type": "object",
+      "properties": {
+        "trackingNo": {
+          "type": "string"
+        },
+        "carrier": {
+          "type": "string"
+        }
+      }
+    },
+    "OrderServiceAuditAfterSalesBody": {
+      "type": "object",
+      "properties": {
+        "approved": {
+          "type": "boolean"
+        },
+        "rejectReason": {
+          "type": "string"
+        }
+      }
+    },
+    "OrderServiceBuyerReturnGoodsBody": {
+      "type": "object",
+      "properties": {
+        "carrier": {
+          "type": "string"
+        },
+        "trackingNo": {
+          "type": "string"
+        }
+      }
+    },
+    "OrderServiceCancelAfterSalesBody": {
+      "type": "object"
+    },
+    "OrderServiceCancelOrderBody": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "OrderServiceConfirmReceiptBody": {
+      "type": "object"
+    },
+    "OrderServiceMerchantConfirmReturnBody": {
+      "type": "object"
+    },
+    "OrderServicePayOrderBody": {
+      "type": "object",
+      "properties": {
+        "payChannel": {
+          "type": "string",
+          "title": "MOCK_ALIPAY, MOCK_WECHAT"
+        }
+      }
+    },
+    "OrderServiceUpdateCartItemBody": {
+      "type": "object",
+      "properties": {
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "selected": {
+          "type": "boolean"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1AddCartItemRequest": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1AddCartItemResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1AdminListAfterSalesResponse": {
+      "type": "object",
+      "properties": {
+        "afterSalesOrders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1AfterSalesOrder"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1AdminListOrdersResponse": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Order"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1AdminShipOrderResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1AfterSalesItem": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "realizedPrice": {
+          "type": "string",
+          "format": "int64",
+          "title": "实付单价 (分)"
+        },
+        "refundAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "该项退款金额 (分)"
+        }
+      },
+      "title": "售后单商品明细项"
+    },
+    "v1AfterSalesOrder": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "afterSalesNo": {
+          "type": "string"
+        },
+        "childOrderId": {
+          "type": "string"
+        },
+        "childOrderNo": {
+          "type": "string"
+        },
+        "parentOrderId": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "title": "REFUND_ONLY, RETURN_AND_REFUND"
+        },
+        "status": {
+          "type": "string",
+          "title": "APPLIED, MERCHANT_APPROVED, BUYER_RETURNED, REFUNDED, MERCHANT_REJECTED, CANCELLED"
+        },
+        "refundAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "总退款金额 (分)"
+        },
+        "reason": {
+          "type": "string",
+          "title": "申请理由"
+        },
+        "rejectReason": {
+          "type": "string",
+          "title": "拒绝理由"
+        },
+        "returnCarrier": {
+          "type": "string",
+          "title": "退货承运商"
+        },
+        "returnTrackingNo": {
+          "type": "string",
+          "title": "退货单号"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1AfterSalesItem"
+          }
+        }
+      },
+      "title": "售后申请明细单"
+    },
+    "v1ApplyAfterSalesItemParam": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1ApplyAfterSalesRequest": {
+      "type": "object",
+      "properties": {
+        "childOrderId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "title": "REFUND_ONLY, RETURN_AND_REFUND"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1ApplyAfterSalesItemParam"
+          },
+          "title": "若为空则整单退款"
+        }
+      }
+    },
+    "v1ApplyAfterSalesResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "afterSales": {
+          "$ref": "#/definitions/v1AfterSalesOrder"
+        }
+      }
+    },
+    "v1AuditAfterSalesResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        },
+        "refundAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "若为 REFUND_ONLY 且同意，立即退款"
+        }
+      }
+    },
+    "v1BuyerReturnGoodsResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CancelAfterSalesResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CancelOrderResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1CartItem": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "attrsJson": {
+          "type": "string"
+        },
+        "price": {
+          "type": "string",
+          "format": "int64",
+          "title": "实时单价 (分)"
+        },
+        "subtotal": {
+          "type": "string",
+          "format": "int64",
+          "title": "小计 (分) = price * quantity"
+        },
+        "available": {
+          "type": "boolean",
+          "title": "是否可售"
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "所属商家租户ID"
+        },
+        "storeName": {
+          "type": "string",
+          "title": "店铺名称"
+        }
+      },
+      "title": "购物车展示项"
+    },
+    "v1ChildOrder": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string",
+          "title": "关联主订单 ID"
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "商家租户 ID"
+        },
+        "orderNo": {
+          "type": "string",
+          "title": "子订单编号"
+        },
+        "userId": {
+          "type": "string",
+          "title": "买家 ID"
+        },
+        "totalAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "原始总金额 (分)"
+        },
+        "discountAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "分摊优惠总额 (分)"
+        },
+        "payAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "实付金额 (分)"
+        },
+        "status": {
+          "type": "string",
+          "title": "PENDING_PAYMENT, PAID, SHIPPED, COMPLETED, CANCELLED"
+        },
+        "carrier": {
+          "type": "string",
+          "title": "物流承运商"
+        },
+        "trackingNo": {
+          "type": "string",
+          "title": "运单号"
+        },
+        "shippedAt": {
+          "type": "string",
+          "format": "int64",
+          "title": "发货时间"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "int64",
+          "title": "确认收货时间"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1OrderItem"
+          }
+        }
+      },
+      "title": "子订单 (面向商家履约、发货、物流与售后)"
+    },
+    "v1ClearCartResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1ConfirmReceiptResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "settledAmount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "commissionAmount": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1CreateOrderItemParam": {
+      "type": "object",
+      "properties": {
+        "skuId": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1CreateOrderRequest": {
+      "type": "object",
+      "properties": {
+        "settlementToken": {
+          "type": "string",
+          "title": "防重令牌 (必填，单次消费)"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CreateOrderItemParam"
+          }
+        },
+        "receiverName": {
+          "type": "string"
+        },
+        "receiverPhone": {
+          "type": "string"
+        },
+        "receiverAddress": {
+          "type": "string"
+        }
+      }
+    },
+    "v1CreateOrderResponse": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "$ref": "#/definitions/v1Order"
+        },
+        "parentOrder": {
+          "$ref": "#/definitions/v1ParentOrder"
+        },
+        "childOrders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1ChildOrder"
+          }
+        }
+      }
+    },
+    "v1GetAfterSalesResponse": {
+      "type": "object",
+      "properties": {
+        "afterSales": {
+          "$ref": "#/definitions/v1AfterSalesOrder"
+        }
+      }
+    },
+    "v1GetCartResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CartItem"
+          }
+        },
+        "totalAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "勾选商品总额 (分)"
+        },
+        "totalCount": {
+          "type": "string",
+          "format": "int64",
+          "title": "勾选商品总件数"
+        }
+      }
+    },
+    "v1GetOrderResponse": {
+      "type": "object",
+      "properties": {
+        "order": {
+          "$ref": "#/definitions/v1Order"
+        }
+      }
+    },
+    "v1GetParentOrderResponse": {
+      "type": "object",
+      "properties": {
+        "parentOrder": {
+          "$ref": "#/definitions/v1ParentOrder"
+        }
+      }
+    },
+    "v1ListAfterSalesResponse": {
+      "type": "object",
+      "properties": {
+        "afterSalesOrders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1AfterSalesOrder"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1ListOrdersResponse": {
+      "type": "object",
+      "properties": {
+        "orders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Order"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1ListParentOrdersResponse": {
+      "type": "object",
+      "properties": {
+        "parentOrders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1ParentOrder"
+          }
+        },
+        "total": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1MerchantConfirmReturnResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        },
+        "refundAmount": {
+          "type": "string",
+          "format": "int64"
+        }
+      }
+    },
+    "v1Order": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "orderNo": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "totalAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "订单总金额 (分)"
+        },
+        "payAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "应付/实付金额 (分)"
+        },
+        "status": {
+          "type": "string",
+          "title": "PENDING_PAYMENT, PAID, SHIPPED, COMPLETED, CANCELLED"
+        },
+        "receiverName": {
+          "type": "string"
+        },
+        "receiverPhone": {
+          "type": "string"
+        },
+        "receiverAddress": {
+          "type": "string"
+        },
+        "expireAt": {
+          "type": "string",
+          "format": "int64",
+          "title": "支付超时 Unix 时间戳"
+        },
+        "paidAt": {
+          "type": "string",
+          "format": "int64",
+          "title": "支付时间"
+        },
+        "shippedAt": {
+          "type": "string",
+          "format": "int64",
+          "title": "发货时间"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1OrderItem"
+          }
+        },
+        "parentId": {
+          "type": "string"
+        }
+      },
+      "title": "订单主体 (保留兼容)"
+    },
+    "v1OrderItem": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "orderId": {
+          "type": "string"
+        },
+        "skuId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "image": {
+          "type": "string"
+        },
+        "attrsJson": {
+          "type": "string"
+        },
+        "price": {
+          "type": "string",
+          "format": "int64",
+          "title": "成交快照单价 (分)"
+        },
+        "quantity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "subtotal": {
+          "type": "string",
+          "format": "int64",
+          "title": "分"
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "所属商家租户ID"
+        },
+        "parentOrderId": {
+          "type": "string",
+          "title": "关联主订单ID"
+        },
+        "originalPrice": {
+          "type": "string",
+          "format": "int64",
+          "title": "原始单价 (分)"
+        },
+        "allocatedDiscount": {
+          "type": "string",
+          "format": "int64",
+          "title": "分摊优惠总额 (分)"
+        },
+        "realizedPrice": {
+          "type": "string",
+          "format": "int64",
+          "title": "实付单价 (分)"
+        }
+      },
+      "title": "订单明细项"
+    },
+    "v1ParentOrder": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "orderNo": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "totalAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "全店原始总额 (分)"
+        },
+        "discountAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "跨店满减/优惠总额 (分)"
+        },
+        "payAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "最终应付总额 (分)"
+        },
+        "status": {
+          "type": "string",
+          "title": "PENDING_PAYMENT, PAID, CANCELLED"
+        },
+        "receiverName": {
+          "type": "string"
+        },
+        "receiverPhone": {
+          "type": "string"
+        },
+        "receiverAddress": {
+          "type": "string"
+        },
+        "expireAt": {
+          "type": "string",
+          "format": "int64",
+          "title": "支付截止时间"
+        },
+        "paidAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "int64"
+        },
+        "childOrders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1ChildOrder"
+          }
+        },
+        "tenantId": {
+          "type": "string",
+          "title": "归属租户 (multi-tenant isolation key)"
+        }
+      },
+      "title": "主订单 (面向买家聚合支付与结算)"
+    },
+    "v1PayOrderResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "v1PrepareSettlementRequest": {
+      "type": "object",
+      "properties": {
+        "skuIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "title": "选中的 SKU，留空默认勾选购物车全部"
+        }
+      }
+    },
+    "v1PrepareSettlementResponse": {
+      "type": "object",
+      "properties": {
+        "settlementToken": {
+          "type": "string",
+          "title": "防重令牌 (有效期 30 分钟)"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CartItem"
+          }
+        },
+        "totalAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "原始商品总额 (分)"
+        },
+        "storeGroups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1StoreSettlementGroup"
+          },
+          "title": "按商家拆单预览"
+        },
+        "totalDiscount": {
+          "type": "string",
+          "format": "int64",
+          "title": "跨店满减/优惠总额 (分)"
+        },
+        "payAmount": {
+          "type": "string",
+          "format": "int64",
+          "title": "最终应付金额 (分)"
+        }
+      }
+    },
+    "v1RemoveCartItemResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1StoreSettlementGroup": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string"
+        },
+        "storeName": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1CartItem"
+          }
+        },
+        "totalAmount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "discountAmount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "payAmount": {
+          "type": "string",
+          "format": "int64"
+        }
+      },
+      "title": "结算预览分组 (按商家聚合)"
+    },
+    "v1UpdateCartItemResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,124 @@
+﻿syntax = "proto3";
+
+package inventory.v1;
+
+option go_package = "order/gen/inventory/v1;inventoryv1";
+
+import "google/api/annotations.proto";
+
+// InventoryService 提供多租户高并发库存查询、原子预扣、扣减与释放服务
+service InventoryService {
+  // 查询单个 SKU 库存
+  rpc GetStock(GetStockRequest) returns (GetStockResponse) {
+    option (google.api.http) = {
+      get: "/v1/inventory/{sku_id}"
+    };
+  }
+
+  // 批量查询 SKU 库存
+  rpc BatchGetStock(BatchGetStockRequest) returns (BatchGetStockResponse) {
+    option (google.api.http) = {
+      post: "/v1/inventory/batch"
+      body: "*"
+    };
+  }
+
+  // 下单原子预扣库存 (由 Order 服务调用)
+  rpc ReserveStock(ReserveStockRequest) returns (ReserveStockResponse) {
+    option (google.api.http) = {
+      post: "/v1/inventory/reserve"
+      body: "*"
+    };
+  }
+
+  // 超时或取消释放预扣库存 (由 Order 服务超时关单调用)
+  rpc ReleaseStock(ReleaseStockRequest) returns (ReleaseStockResponse) {
+    option (google.api.http) = {
+      post: "/v1/inventory/release"
+      body: "*"
+    };
+  }
+
+  // 支付成功最终核销扣减库存 (由 Order 支付成功后调用)
+  rpc DeductStock(DeductStockRequest) returns (DeductStockResponse) {
+    option (google.api.http) = {
+      post: "/v1/inventory/deduct"
+      body: "*"
+    };
+  }
+
+  // 商户后台管理员调整物理库存 (入库/盘点，受 RBAC 保护)
+  rpc AdjustStock(AdjustStockRequest) returns (AdjustStockResponse) {
+    option (google.api.http) = {
+      post: "/v1/admin/inventory/adjust"
+      body: "*"
+    };
+  }
+}
+
+// 单个 SKU 库存实体
+message StockItem {
+  string sku_id = 1;
+  int64 total_stock = 2;     // 物理总库存
+  int64 reserved_stock = 3;  // 预扣冻结库存
+  int64 available_stock = 4; // 可用库存 = total - reserved
+  int64 updated_at = 5;
+}
+
+message StockItemDelta {
+  string sku_id = 1;
+  int64 quantity = 2;
+}
+
+message GetStockRequest {
+  string sku_id = 1;
+}
+
+message GetStockResponse {
+  StockItem stock = 1;
+}
+
+message BatchGetStockRequest {
+  repeated string sku_ids = 1;
+}
+
+message BatchGetStockResponse {
+  repeated StockItem stocks = 1;
+}
+
+message ReserveStockRequest {
+  string order_no = 1;
+  repeated StockItemDelta items = 2;
+}
+
+message ReserveStockResponse {
+  bool success = 1;
+}
+
+message ReleaseStockRequest {
+  string order_no = 1;
+  repeated StockItemDelta items = 2;
+}
+
+message ReleaseStockResponse {
+  bool success = 1;
+}
+
+message DeductStockRequest {
+  string order_no = 1;
+  repeated StockItemDelta items = 2;
+}
+
+message DeductStockResponse {
+  bool success = 1;
+}
+
+message AdjustStockRequest {
+  string sku_id = 1;
+  int64 delta = 2;        // 增加为正数，核减为负数
+  string reason = 3;       // 调整原因，如 "采购入库", "盘点损耗"
+}
+
+message AdjustStockResponse {
+  StockItem stock = 1;
+}
