@@ -46,28 +46,6 @@ type RedisClientConfig struct {
 	DB       int
 }
 
-// OrderModel maps to 'orders' table.
-type OrderModel struct {
-	ID              string     `gorm:"primaryKey;type:varchar(64)" json:"id"`
-	TenantID        string     `gorm:"uniqueIndex:uniq_tenant_order_no;index:idx_tenant_user;type:varchar(64);not null;default:'tenant-default'" json:"tenant_id"`
-	OrderNo         string     `gorm:"uniqueIndex:uniq_tenant_order_no;type:varchar(64);not null" json:"order_no"`
-	UserID          string     `gorm:"index:idx_tenant_user;type:varchar(64);not null" json:"user_id"`
-	TotalAmount     int64      `gorm:"type:bigint;not null" json:"total_amount"`
-	PayAmount       int64      `gorm:"type:bigint;not null" json:"pay_amount"`
-	Status          string     `gorm:"index:idx_tenant_status;type:varchar(32);not null;default:'PENDING_PAYMENT'" json:"status"`
-	ReceiverName    string     `gorm:"type:varchar(64)" json:"receiver_name"`
-	ReceiverPhone   string     `gorm:"type:varchar(32)" json:"receiver_phone"`
-	ReceiverAddress string     `gorm:"type:varchar(255)" json:"receiver_address"`
-	ExpireAt        time.Time  `gorm:"index:idx_expire_at" json:"expire_at"`
-	PaidAt          *time.Time `json:"paid_at"`
-	ShippedAt       *time.Time `json:"shipped_at"`
-	CreatedAt       time.Time  `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt       time.Time  `gorm:"autoUpdateTime" json:"updated_at"`
-}
-
-func (OrderModel) TableName() string {
-	return "orders"
-}
 
 // ParentOrderModel maps to 'parent_orders' table.
 type ParentOrderModel struct {
@@ -138,36 +116,7 @@ func (OrderItemModel) TableName() string {
 	return "order_items"
 }
 
-func (m *OrderModel) ToProto(items []*orderv1.OrderItem) *orderv1.Order {
-	if m == nil {
-		return nil
-	}
-	var paidAt int64
-	if m.PaidAt != nil {
-		paidAt = m.PaidAt.Unix()
-	}
-	var shippedAt int64
-	if m.ShippedAt != nil {
-		shippedAt = m.ShippedAt.Unix()
-	}
-	return &orderv1.Order{
-		Id:              m.ID,
-		TenantId:        m.TenantID,
-		OrderNo:         m.OrderNo,
-		UserId:          m.UserID,
-		TotalAmount:     m.TotalAmount,
-		PayAmount:       m.PayAmount,
-		Status:          m.Status,
-		ReceiverName:    m.ReceiverName,
-		ReceiverPhone:   m.ReceiverPhone,
-		ReceiverAddress: m.ReceiverAddress,
-		ExpireAt:        m.ExpireAt.Unix(),
-		PaidAt:          paidAt,
-		ShippedAt:       shippedAt,
-		CreatedAt:       m.CreatedAt.Unix(),
-		Items:           items,
-	}
-}
+
 
 func (m *ParentOrderModel) ToProto(children []*orderv1.ChildOrder) *orderv1.ParentOrder {
 	if m == nil {
@@ -341,7 +290,7 @@ func NewOrderRepo(data *Data) (biz.OrderRepo, error) {
 		return NewMemoryRepository(), nil
 	}
 
-	if err := data.db.AutoMigrate(&OrderModel{}, &OrderItemModel{}, &ParentOrderModel{}, &ChildOrderModel{}, &AfterSalesModel{}, &AfterSalesItemModel{}); err != nil {
+	if err := data.db.AutoMigrate(&ParentOrderModel{}, &ChildOrderModel{}, &OrderItemModel{}, &AfterSalesModel{}, &AfterSalesItemModel{}); err != nil {
 		otelzap.L().Warn("MySQL AutoMigrate failed for order, falling back to memory repository", zap.Error(err))
 		return NewMemoryRepository(), nil
 	}
@@ -675,125 +624,107 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order *orderv1.Order)
 		tid = order.TenantId
 	}
 
-	orderID := order.Id
-	if orderID == "" {
-		orderID = "ord-" + uuid.NewString()
-	}
-
-	expireAt := time.Unix(order.ExpireAt, 0)
-	if order.ExpireAt <= 0 {
-		expireAt = time.Now().Add(15 * time.Minute)
-	}
-
-	m := &OrderModel{
-		ID:              orderID,
-		TenantID:        tid,
+	parent := &orderv1.ParentOrder{
+		Id:              order.Id,
+		TenantId:        tid,
 		OrderNo:         order.OrderNo,
-		UserID:          order.UserId,
+		UserId:          order.UserId,
 		TotalAmount:     order.TotalAmount,
 		PayAmount:       order.PayAmount,
 		Status:          order.Status,
 		ReceiverName:    order.ReceiverName,
 		ReceiverPhone:   order.ReceiverPhone,
 		ReceiverAddress: order.ReceiverAddress,
-		ExpireAt:        expireAt,
+		ExpireAt:        order.ExpireAt,
 	}
-
-	itemModels := make([]OrderItemModel, len(order.Items))
-	for i, item := range order.Items {
-		itemID := item.Id
-		if itemID == "" {
-			itemID = "item-" + uuid.NewString()
-		}
-		itemModels[i] = OrderItemModel{
-			ID:        itemID,
-			TenantID:  tid,
-			OrderID:   orderID,
-			SKUID:     item.SkuId,
-			Title:     item.Title,
-			Image:     item.Image,
-			AttrsJSON: item.AttrsJson,
-			Price:     item.Price,
-			Quantity:  item.Quantity,
-			Subtotal:  item.Subtotal,
-		}
+	child := &orderv1.ChildOrder{
+		Id:          order.Id,
+		ParentId:    order.Id,
+		TenantId:    tid,
+		OrderNo:     order.OrderNo,
+		UserId:      order.UserId,
+		TotalAmount: order.TotalAmount,
+		PayAmount:   order.PayAmount,
+		Status:      order.Status,
+		Items:       order.Items,
 	}
-
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(m).Error; err != nil {
-			return err
-		}
-		if len(itemModels) > 0 {
-			if err := tx.Create(&itemModels).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	_, _, err := r.CreateParentOrder(ctx, parent, []*orderv1.ChildOrder{child}, "")
 	if err != nil {
 		return nil, err
 	}
-
-	resItems := make([]*orderv1.OrderItem, len(itemModels))
-	for i := range itemModels {
-		resItems[i] = itemModels[i].ToProto()
-	}
-	return m.ToProto(resItems), nil
+	return order, nil
 }
 
 func (r *MySQLRepository) GetOrder(ctx context.Context, orderID string) (*orderv1.Order, error) {
-	tid := r.resolveTenant(ctx)
-	query := r.db.WithContext(ctx).Where("id = ?", orderID)
-	if tid != "" && tid != "platform" {
-		query = query.Where("tenant_id = ?", tid)
-	}
-
-	var m OrderModel
-	if err := query.First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrOrderNotFound
+	if child, err := r.GetChildOrder(ctx, orderID); err == nil && child != nil {
+		expireAt := int64(0)
+		var recName, recPhone, recAddr string
+		if parent, pErr := r.GetParentOrder(ctx, child.ParentId); pErr == nil && parent != nil {
+			expireAt = parent.ExpireAt
+			recName = parent.ReceiverName
+			recPhone = parent.ReceiverPhone
+			recAddr = parent.ReceiverAddress
 		}
-		return nil, err
+		return &orderv1.Order{
+			Id:              child.Id,
+			TenantId:        child.TenantId,
+			OrderNo:         child.OrderNo,
+			UserId:          child.UserId,
+			TotalAmount:     child.TotalAmount,
+			PayAmount:       child.PayAmount,
+			Status:          child.Status,
+			ReceiverName:    recName,
+			ReceiverPhone:   recPhone,
+			ReceiverAddress: recAddr,
+			ExpireAt:        expireAt,
+			ShippedAt:       child.ShippedAt,
+			CreatedAt:       child.CreatedAt,
+			Items:           child.Items,
+			ParentId:        child.ParentId,
+		}, nil
 	}
 
-	itemQuery := r.db.WithContext(ctx).Where("order_id = ?", orderID)
-	if tid != "" && tid != "platform" {
-		itemQuery = itemQuery.Where("tenant_id = ?", tid)
+	if parent, err := r.GetParentOrder(ctx, orderID); err == nil && parent != nil {
+		var items []*orderv1.OrderItem
+		for _, ch := range parent.ChildOrders {
+			items = append(items, ch.Items...)
+		}
+		return &orderv1.Order{
+			Id:              parent.Id,
+			TenantId:        parent.TenantId,
+			OrderNo:         parent.OrderNo,
+			UserId:          parent.UserId,
+			TotalAmount:     parent.TotalAmount,
+			PayAmount:       parent.PayAmount,
+			Status:          parent.Status,
+			ReceiverName:    parent.ReceiverName,
+			ReceiverPhone:   parent.ReceiverPhone,
+			ReceiverAddress: parent.ReceiverAddress,
+			ExpireAt:        parent.ExpireAt,
+			PaidAt:          parent.PaidAt,
+			CreatedAt:       parent.CreatedAt,
+			Items:           items,
+		}, nil
 	}
 
-	var items []OrderItemModel
-	if err := itemQuery.Find(&items).Error; err != nil {
-		return nil, err
-	}
-	resItems := make([]*orderv1.OrderItem, len(items))
-	for i := range items {
-		resItems[i] = items[i].ToProto()
-	}
-	return m.ToProto(resItems), nil
+	return nil, ErrOrderNotFound
 }
 
 func (r *MySQLRepository) GetOrderByNo(ctx context.Context, orderNo string) (*orderv1.Order, error) {
-	tid := r.resolveTenant(ctx)
-	query := r.db.WithContext(ctx).Where("order_no = ?", orderNo)
-	if tid != "" && tid != "platform" {
-		query = query.Where("tenant_id = ?", tid)
+	if child, err := r.GetChildOrderByNo(ctx, orderNo); err == nil && child != nil {
+		return r.GetOrder(ctx, child.Id)
 	}
-
-	var m OrderModel
-	if err := query.First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrOrderNotFound
-		}
-		return nil, err
+	if parent, err := r.GetParentOrderByNo(ctx, orderNo); err == nil && parent != nil {
+		return r.GetOrder(ctx, parent.Id)
 	}
-	return r.GetOrder(ctx, m.ID)
+	return nil, ErrOrderNotFound
 }
 
 func (r *MySQLRepository) ListOrders(ctx context.Context, userID, status string, page, pageSize int) ([]*orderv1.Order, int64, error) {
 	tid := r.resolveTenant(ctx)
 	page, pageSize = paging.Normalize(page, pageSize)
 
-	query := r.db.WithContext(ctx).Model(&OrderModel{})
+	query := r.db.WithContext(ctx).Model(&ChildOrderModel{})
 	if tid != "" && tid != "platform" {
 		query = query.Where("tenant_id = ?", tid)
 	}
@@ -809,60 +740,48 @@ func (r *MySQLRepository) ListOrders(ctx context.Context, userID, status string,
 		return nil, 0, err
 	}
 
-	var orders []OrderModel
+	var cms []ChildOrderModel
 	if err := query.Order("created_at desc").
 		Offset(paging.Offset(page, pageSize)).Limit(pageSize).
-		Find(&orders).Error; err != nil {
+		Find(&cms).Error; err != nil {
 		return nil, 0, err
 	}
 
-	orderIDs := make([]string, 0, len(orders))
-	for i := range orders {
-		orderIDs = append(orderIDs, orders[i].ID)
+	childIDs := make([]string, 0, len(cms))
+	for i := range cms {
+		childIDs = append(childIDs, cms[i].ID)
 	}
 
-	itemMap, err := r.loadItemsByOrderIDs(ctx, orderIDs)
+	itemMap, err := r.loadItemsByOrderIDs(ctx, childIDs)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	res := make([]*orderv1.Order, len(orders))
-	for i := range orders {
-		res[i] = orders[i].ToProto(itemMap[orders[i].ID])
+	res := make([]*orderv1.Order, len(cms))
+	for i := range cms {
+		ch := cms[i].ToProto(itemMap[cms[i].ID])
+		res[i] = &orderv1.Order{
+			Id:          ch.Id,
+			TenantId:    ch.TenantId,
+			OrderNo:     ch.OrderNo,
+			UserId:      ch.UserId,
+			TotalAmount: ch.TotalAmount,
+			PayAmount:   ch.PayAmount,
+			Status:      ch.Status,
+			ShippedAt:   ch.ShippedAt,
+			CreatedAt:   ch.CreatedAt,
+			Items:       ch.Items,
+			ParentId:    ch.ParentId,
+		}
 	}
 	return res, total, nil
 }
 
 func (r *MySQLRepository) UpdateOrderStatus(ctx context.Context, orderID, oldStatus, newStatus string, extraUpdates map[string]interface{}) (bool, error) {
-	tid := r.resolveTenant(ctx)
-	updates := map[string]interface{}{
-		"status": newStatus,
+	if ok, err := r.UpdateChildOrderStatus(ctx, orderID, oldStatus, newStatus, extraUpdates); err == nil && ok {
+		return true, nil
 	}
-	for k, v := range extraUpdates {
-		updates[k] = v
-	}
-
-	query := r.getDB(ctx).Model(&OrderModel{}).Where("id = ?", orderID)
-	if tid != "" && tid != "platform" {
-		query = query.Where("tenant_id = ?", tid)
-	}
-	if oldStatus != "" {
-		query = query.Where("status = ?", oldStatus)
-	}
-
-	res := query.Updates(updates)
-	if res.Error != nil {
-		return false, res.Error
-	}
-	if res.RowsAffected > 0 {
-		// Step 3.4: 在同一本地事务连接内级联更新子订单，确保与主订单状态原子提交
-		// 来源: 上方 CAS 胜出的主订单更新结果
-		// 用于: DTM 二阶段消息 QueryPrepared 能观察到完整且一致的订单状态
-		// 注意: 子订单可能归属不同商户租户，按唯一主键级联，不能再叠加买家侧租户过滤
-		childQuery := r.getDB(ctx).Model(&ChildOrderModel{}).Where("id = ?", orderID)
-		if err := childQuery.Updates(updates).Error; err != nil {
-			return false, err
-		}
+	if ok, err := r.UpdateParentOrderStatus(ctx, orderID, oldStatus, newStatus, extraUpdates); err == nil && ok {
 		return true, nil
 	}
 	return false, nil

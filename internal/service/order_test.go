@@ -162,11 +162,11 @@ func TestOrderService_AfterSalesFlow(t *testing.T) {
 
 	ctx := testContext("buyer-3", "tenant-test")
 
-	// 初始订单
+	// 初始主子订单
 	now := time.Now().Unix()
-	ord := &orderv1.Order{
-		Id:           "order-as-test",
-		OrderNo:      "O202610110001",
+	parent := &orderv1.ParentOrder{
+		Id:           "pord-as-test",
+		OrderNo:      "PO202610110001",
 		TenantId:     "tenant-test",
 		UserId:       "buyer-3",
 		TotalAmount:  1000,
@@ -174,18 +174,33 @@ func TestOrderService_AfterSalesFlow(t *testing.T) {
 		Status:       "PAID",
 		ReceiverName: "李四",
 		CreatedAt:    now,
-		Items: []*orderv1.OrderItem{
-			{
-				Id:            "oi-1",
-				OrderId:       "order-as-test",
-				SkuId:         "sku-301",
-				Quantity:      1,
-				Price:         1000,
-				RealizedPrice: 1000,
+	}
+	children := []*orderv1.ChildOrder{
+		{
+			Id:          "order-as-test",
+			ParentId:    "pord-as-test",
+			TenantId:    "tenant-test",
+			OrderNo:     "O202610110001",
+			UserId:      "buyer-3",
+			TotalAmount: 1000,
+			PayAmount:   1000,
+			Status:      "PAID",
+			CreatedAt:   now,
+			Items: []*orderv1.OrderItem{
+				{
+					Id:            "oi-1",
+					OrderId:       "order-as-test",
+					ParentOrderId: "pord-as-test",
+					TenantId:      "tenant-test",
+					SkuId:         "sku-301",
+					Quantity:      1,
+					Price:         1000,
+					RealizedPrice: 1000,
+				},
 			},
 		},
 	}
-	_, err := repo.CreateOrder(ctx, ord)
+	_, _, err := repo.CreateParentOrder(ctx, parent, children, "token-as-test")
 	require.NoError(t, err)
 
 	// Step 3.1.1: 买家申请仅退款
