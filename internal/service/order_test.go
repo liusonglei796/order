@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -95,16 +95,8 @@ func TestOrderService_OrderLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Step 2.1.1: 准备结算获取结算令牌
-	prepResp, err := svc.PrepareSettlement(ctx, &orderv1.PrepareSettlementRequest{
-		SkuIds: []string{"sku-201"},
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, prepResp.SettlementToken)
-
-	// Step 2.1.2: 提交订单
+	// 提交订单
 	createResp, err := svc.CreateOrder(ctx, &orderv1.CreateOrderRequest{
-		SettlementToken: prepResp.SettlementToken,
 		Items: []*orderv1.CreateOrderItemParam{
 			{SkuId: "sku-201", Quantity: 1},
 		},
@@ -200,7 +192,7 @@ func TestOrderService_AfterSalesFlow(t *testing.T) {
 			},
 		},
 	}
-	_, _, err := repo.CreateParentOrder(ctx, parent, children, "token-as-test")
+	_, _, err := repo.CreateParentOrder(ctx, parent, children)
 	require.NoError(t, err)
 
 	// Step 3.1.1: 买家申请仅退款
@@ -252,14 +244,7 @@ func TestOrderService_HorizontalOwnershipDefense(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 买家 A 准备结算
-	prepResp, err := svc.PrepareSettlement(ctxBuyerA, &orderv1.PrepareSettlementRequest{
-		SkuIds: []string{"sku-201"},
-	})
-	require.NoError(t, err)
-
 	createResp, err := svc.CreateOrder(ctxBuyerA, &orderv1.CreateOrderRequest{
-		SettlementToken: prepResp.SettlementToken,
 		Items: []*orderv1.CreateOrderItemParam{
 			{SkuId: "sku-201", Quantity: 1},
 		},

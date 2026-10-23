@@ -164,30 +164,10 @@ func (s *OrderService) ClearCart(ctx context.Context, req *orderv1.ClearCartRequ
 	return &orderv1.ClearCartResponse{Success: true}, nil
 }
 
-// Step 2.1: 准备结算并签发防重防刷结算令牌
-// 来源: 买家点击"去结算"发起的 orderv1.PrepareSettlementRequest
-// 用于: 校验商品有效性、生成拆单预览并签发具备租约状态机的 settlement_token
-func (s *OrderService) PrepareSettlement(ctx context.Context, req *orderv1.PrepareSettlementRequest) (*orderv1.PrepareSettlementResponse, error) {
-	userID, err := s.requireUserID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.uc.PrepareSettlement(ctx, userID, req.GetSkuIds())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "prepare settlement failed: %v", err)
-	}
-	return resp, nil
-}
-
-// Step 3.1: 提交订单 (核心建单与跨店拆单)
-// 来源: 买家点击"提交订单"发起的 orderv1.CreateOrderRequest (包含结算令牌)
-// 用于: 令牌防重消费、跨店拆单、库存原子预占，持久化主子订单拓扑并写入超时关单延迟队列
+// Step 2.1: 提交订单 (核心建单与跨店拆单)
+// 来源: 买家点击"提交订单"发起的 orderv1.CreateOrderRequest
+// 用于: 跨店拆单、库存原子预占，持久化主子订单拓扑并写入超时关单延迟队列
 func (s *OrderService) CreateOrder(ctx context.Context, req *orderv1.CreateOrderRequest) (*orderv1.CreateOrderResponse, error) {
-	if strings.TrimSpace(req.GetSettlementToken()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "settlement_token is required")
-	}
-
 	userID, err := s.requireUserID(ctx, "")
 	if err != nil {
 		return nil, err

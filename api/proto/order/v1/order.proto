@@ -1,4 +1,4 @@
-﻿syntax = "proto3";
+syntax = "proto3";
 
 package order.v1;
 
@@ -43,15 +43,7 @@ service OrderService {
   }
 
   // --- 交易与结算流程 ---
-  // 进入结算页，计算总价并生成防重 settlement_token
-  rpc PrepareSettlement(PrepareSettlementRequest) returns (PrepareSettlementResponse) {
-    option (google.api.http) = {
-      post: "/v1/orders/settlement"
-      body: "*"
-    };
-  }
-
-  // 提交订单 (校验防重 token -> 原子预扣库存 -> 创建订单)
+  // 提交订单 (原子预扣库存 -> 创建订单)
   rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse) {
     option (google.api.http) = {
       post: "/v1/orders"
@@ -334,26 +326,12 @@ message ClearCartResponse {
   bool success = 1;
 }
 
-message PrepareSettlementRequest {
-  repeated string sku_ids = 1; // 选中的 SKU，留空默认勾选购物车全部
-}
-
-message PrepareSettlementResponse {
-  string settlement_token = 1; // 防重令牌 (有效期 30 分钟)
-  repeated CartItem items = 2;
-  int64 total_amount = 3;      // 原始商品总额 (分)
-  repeated StoreSettlementGroup store_groups = 4; // 按商家拆单预览
-  int64 total_discount = 5;    // 跨店满减/优惠总额 (分)
-  int64 pay_amount = 6;        // 最终应付金额 (分)
-}
-
 message CreateOrderItemParam {
   string sku_id = 1;
   int64 quantity = 2;
 }
 
 message CreateOrderRequest {
-  string settlement_token = 1; // 防重令牌 (必填，单次消费)
   repeated CreateOrderItemParam items = 2;
   string receiver_name = 3;
   string receiver_phone = 4;

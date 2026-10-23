@@ -6,14 +6,13 @@
 
 ## 🌟 核心架构与功能特性
 
-1. **防重结算令牌机制 (Settlement Token)**：
-   - 结算页预请求生成带租约生命周期（Lease）的防重结算令牌；
-   - 提交订单时通过 Redis Lua 脚本进行原子核销（`INIT -> PROCESSING -> COMMITTED`）；
-   - 支持并发高频重试、弱网重放与本地内存平滑降级，杜绝重复落单。
+1. **防重结算令牌架构体系 (Settlement Token Design)**：
+   - 包含完备的架构设计文档与实操演练指南（详见 [docs/settlement-token-design.md](docs/settlement-token-design.md)）；
+   - 涵盖两道防线体系（Redis Lua 原子状态机 + MySQL 唯一索引兜底）、确定性主单号推导、CAS 租约心跳续期与纯内存快照秒级回显，并已完整归档全套 Toxiproxy 混沌工程测试。
 
 2. **跨商家拆单引擎 (Order Splitting Pipeline)**：
    - 4 阶段拆单流水线：商品按商家租户分组 -> 平台/商家满减优惠按比例分摊 -> 舍入分厘差额末位平账 -> 派生主子订单与明细数据；
-   - 主订单（`ParentOrder`）关联全局支付与防重令牌，子订单（`ChildOrder`）绑定独立商家履约。
+   - 主订单（`ParentOrder`）关联全局支付与买家视图，子订单（`ChildOrder`）绑定独立商家履约。
 
 3. **高可用库存预占与分布式事务**：
    - 支持 DTM Saga 分布式事务预占库存，并在故障时自动执行逆向补偿回滚；
@@ -79,10 +78,11 @@ D:\repo\order
 │   └── service/                   # 订单微服务门面实现（API 入口适配）
 │       ├── order.go               # 实现 orderv1.OrderServiceServer 接口
 │       └── service.go             # Wire ProviderSet
+├── docs/                          # 架构设计与技术文档
+│   └── settlement-token-design.md # 防重结算令牌架构方案与实操指南
 ├── migrations/                    # MySQL 数据库迁移脚本
 │   ├── 20260929_dtm_barrier.sql
-│   ├── 20260929_tenant_isolation.sql
-│   └── 20261021_settlement_token_idempotency.sql
+│   └── 20260929_tenant_isolation.sql
 ├── deployments/                   # 部署配置
 │   └── docker/
 │       └── order.Dockerfile      # 生产容器镜像构建文件
@@ -137,9 +137,8 @@ go test -v ./internal/service/...
 
 - **购物车接口**：
   - `GetCart` / `AddCartItem` / `UpdateCartItem` / `RemoveCartItem` / `ClearCart`
-- **防重结算与下单**：
-  - `PrepareSettlement`: 校验购物车，计算价格并颁发带租约的防重 `settlement_token`。
-  - `CreateOrder`: 原子校验核销 Token，执行跨商家拆单，调用 DTM Saga 预占库存并入库落地主子订单。
+- **下单与拆单**：
+  - `CreateOrder`: 执行跨商家拆单，调用 DTM Saga 预占库存并入库持久化主子订单与明细项。
 - **订单生命周期管理**：
   - `GetOrder` / `ListOrders`: 订单状态与明细查询（带租户所有权过滤）。
   - `PayOrder`: 订单支付成功后推进主子订单状态为 PAID 并移出超时延迟队列。

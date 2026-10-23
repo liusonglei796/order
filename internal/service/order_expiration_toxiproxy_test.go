@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -152,26 +152,17 @@ func TestOrderExpiration_Toxiproxy_HighThroughputZSetDelayQueue(t *testing.T) {
 
 	ctx := buildExpirationTestContext("buyer-exp-1", "tenant-test")
 
-	// Step 1.2: 加购并准备结算
-	// 来源: client.AddCartItem 与 client.PrepareSettlement
-	// 用于: 获取有效提单令牌
+	// Step 1.2: 加购商品
 	_, err := client.AddCartItem(ctx, &orderv1.AddCartItemRequest{
 		SkuId:    "sku-exp-101",
 		Quantity: 1,
 	})
 	require.NoError(t, err)
 
-	prepResp, err := client.PrepareSettlement(ctx, &orderv1.PrepareSettlementRequest{
-		SkuIds: []string{"sku-exp-101"},
-	})
-	require.NoError(t, err)
-	token := prepResp.SettlementToken
-
 	// Step 1.3: 提交订单生成待支付订单 (PENDING_PAYMENT)
 	// 来源: client.CreateOrder (经由 Toxiproxy 代理链路)
 	// 用于: 触发底层向延时关单队列写入到期时间戳 (AddOrderExpiration)
 	createResp, err := client.CreateOrder(ctx, &orderv1.CreateOrderRequest{
-		SettlementToken: token,
 		Items: []*orderv1.CreateOrderItemParam{
 			{SkuId: "sku-exp-101", Quantity: 1},
 		},
@@ -261,11 +252,7 @@ func TestOrderExpiration_Toxiproxy_ActiveZRemOnPayment(t *testing.T) {
 		SkuId:    "sku-exp-201",
 		Quantity: 1,
 	})
-	prepResp, _ := client.PrepareSettlement(ctx, &orderv1.PrepareSettlementRequest{
-		SkuIds: []string{"sku-exp-201"},
-	})
 	createResp, err := client.CreateOrder(ctx, &orderv1.CreateOrderRequest{
-		SettlementToken: prepResp.SettlementToken,
 		Items: []*orderv1.CreateOrderItemParam{
 			{SkuId: "sku-exp-201", Quantity: 1},
 		},
@@ -337,11 +324,7 @@ func TestOrderExpiration_Toxiproxy_CriticalPaymentCancellationRace(t *testing.T)
 		SkuId:    "sku-race-301",
 		Quantity: 2,
 	})
-	prepResp, _ := client.PrepareSettlement(ctx, &orderv1.PrepareSettlementRequest{
-		SkuIds: []string{"sku-race-301"},
-	})
 	createResp, err := client.CreateOrder(ctx, &orderv1.CreateOrderRequest{
-		SettlementToken: prepResp.SettlementToken,
 		Items: []*orderv1.CreateOrderItemParam{
 			{SkuId: "sku-race-301", Quantity: 2},
 		},

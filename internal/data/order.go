@@ -1,4 +1,4 @@
-﻿package data
+package data
 
 import (
 	"context"
@@ -23,19 +23,12 @@ import (
 )
 
 type CartItemData = biz.CartItemData
-type TokenAcquireResult = biz.TokenAcquireResult
 type OrderRepo = biz.OrderRepo
 type DBGetter = biz.DBGetter
 
 var TxFromContext = biz.TxFromContext
 
 const (
-	TokenStatusInit          = biz.TokenStatusInit
-	TokenStatusProcessing    = biz.TokenStatusProcessing
-	TokenStatusSuccess       = biz.TokenStatusSuccess
-	TokenStatusRetryableFail = biz.TokenStatusRetryableFail
-	TokenStatusFatalFail     = biz.TokenStatusFatalFail
-
 	OrderExpirationZSetKey = "order:expiration:zset"
 )
 
@@ -50,9 +43,8 @@ type RedisClientConfig struct {
 // ParentOrderModel maps to 'parent_orders' table.
 type ParentOrderModel struct {
 	ID              string     `gorm:"primaryKey;type:varchar(64)" json:"id"`
-	TenantID        string     `gorm:"uniqueIndex:uniq_parent_order_no;uniqueIndex:uniq_parent_settlement_token;index:idx_parent_tenant;type:varchar(64);not null;default:'tenant-default'" json:"tenant_id"`
+	TenantID        string     `gorm:"uniqueIndex:uniq_parent_order_no;index:idx_parent_tenant;type:varchar(64);not null;default:'tenant-default'" json:"tenant_id"`
 	OrderNo         string     `gorm:"uniqueIndex:uniq_parent_order_no;type:varchar(64);not null" json:"order_no"`
-	SettlementToken *string    `gorm:"uniqueIndex:uniq_parent_settlement_token;column:settlement_token;type:varchar(64)" json:"settlement_token"`
 	UserID          string     `gorm:"index:idx_parent_user;type:varchar(64);not null" json:"user_id"`
 	TotalAmount     int64      `gorm:"type:bigint;not null" json:"total_amount"`
 	DiscountAmount  int64      `gorm:"type:bigint;not null;default:0" json:"discount_amount"`
@@ -413,208 +405,7 @@ func (r *MySQLRepository) ClearCart(ctx context.Context, userID string) error {
 	return r.redisClient.Del(ctx, r.cartKey(tid, userID)).Err()
 }
 
-// --- Settlement Token (状态机治理与多阶段 TTL 防重模型) ---
 
-func (r *MySQLRepository) settlementKey(tid, token string) string {
-	return fmt.Sprintf("settlement:%s:%s", tid, token)
-}
-
-// Step 2.1: 保存初始待消费结算令牌 (INIT 状态, TTL 15~30m)
-// 来源: OrderService.PrepareSettlement 阶段签发的结算令牌
-// 用于: 记录买家归属并进入待消费初始态，覆盖用户核对地址与优惠券的人工决策时长
-func (r *MySQLRepository) SaveSettlementToken(ctx context.Context, userID, token string, ttl time.Duration) error {
-	tid := r.resolveTenant(ctx)
-	key := r.settlementKey(tid, token)
-	pipe := r.redisClient.Pipeline()
-	pipe.HSet(ctx, key, map[string]interface{}{
-		"status":     TokenStatusInit,
-		"user_id":    userID,
-		"created_at": time.Now().UnixMilli(),
-	})
-	pipe.Expire(ctx, key, ttl)
-	_, err := pipe.Exec(ctx)
-	return err
-}
-
-// Step 2.2: 原子推进结算令牌状态至 PROCESSING，支持并发拦截、宕机租约自愈与已成功幂等回显
-// 来源: OrderService.CreateOrder 提单阶段传入的 token 与买家 userID
-// 用于: 毫秒级阻断突发并发连击；在发现前序超时时自愈接管；在命中 SUCCESS 时零打扰回显历史订单
-func (r *MySQLRepository) AcquireSettlementToken(ctx context.Context, userID, token string, leaseTimeout time.Duration) (*TokenAcquireResult, error) {
-	tid := r.resolveTenant(ctx)
-	key := r.settlementKey(tid, token)
-	nowMs := time.Now().UnixMilli()
-	leaseTimeoutMs := leaseTimeout.Milliseconds()
-	if leaseTimeoutMs <= 0 {
-		leaseTimeoutMs = 5000 // 默认 5s 租约，覆盖下游业务建单熔断时间
-	}
-
-	luaScript := `
-		local exists = redis.call('EXISTS', KEYS[1])
-		if exists == 0 then
-			return {'EXPIRED', '', '', '', '', ''}
-		end
-
-		local owner = redis.call('HGET', KEYS[1], 'user_id')
-		if owner ~= ARGV[1] then
-			return {'FORBIDDEN', '', '', '', '', ''}
-		end
-
-		local status = redis.call('HGET', KEYS[1], 'status')
-		if status == 'SUCCESS' then
-			local pId = redis.call('HGET', KEYS[1], 'parent_order_id') or ''
-			local pNo = redis.call('HGET', KEYS[1], 'parent_order_no') or ''
-			local snap = redis.call('HGET', KEYS[1], 'order_snapshot') or ''
-			return {'SUCCESS_REPLAY', pId, pNo, '', '', snap}
-		end
-
-		if status == 'FATAL_FAIL' then
-			local reason = redis.call('HGET', KEYS[1], 'reason') or 'business check failed'
-			return {'FATAL_FAIL', '', '', reason, '', ''}
-		end
-
-		if status == 'INIT' or status == 'RETRYABLE_FAIL' then
-			redis.call('HMSET', KEYS[1], 'status', 'PROCESSING', 'lock_time', ARGV[2])
-			redis.call('EXPIRE', KEYS[1], 1800)
-			return {'PROCEED', '', '', '', ARGV[2], ''}
-		end
-
-		if status == 'PROCESSING' then
-			local lockTime = tonumber(redis.call('HGET', KEYS[1], 'lock_time') or '0')
-			local elapsed = tonumber(ARGV[2]) - lockTime
-			if elapsed > tonumber(ARGV[3]) then
-				-- 租约超时自愈：前序请求节点可能已宕机，允许接管重试
-				redis.call('HMSET', KEYS[1], 'status', 'PROCESSING', 'lock_time', ARGV[2])
-				-- 接管后必须同步刷新物理 TTL，否则 key 会沿用首次抢占时刻的过期倒计时
-				redis.call('EXPIRE', KEYS[1], 1800)
-				return {'PROCEED', '', '', '', ARGV[2], ''}
-			else
-				-- 还在处理窗口期内，阻断连击
-				return {'STILL_PROCESSING', '', '', '', tostring(lockTime), ''}
-			end
-		end
-
-		return {'EXPIRED', '', '', '', '', ''}
-	`
-
-	rawRes, err := r.redisClient.Eval(ctx, luaScript, []string{key}, userID, nowMs, leaseTimeoutMs).Slice()
-	if err != nil {
-		return nil, err
-	}
-
-	res := &TokenAcquireResult{
-		Action: fmt.Sprint(rawRes[0]),
-	}
-	if len(rawRes) > 1 {
-		res.ParentOrderID = fmt.Sprint(rawRes[1])
-	}
-	if len(rawRes) > 2 {
-		res.ParentOrderNo = fmt.Sprint(rawRes[2])
-	}
-	if len(rawRes) > 3 {
-		res.Reason = fmt.Sprint(rawRes[3])
-	}
-	if len(rawRes) > 4 {
-		if ms, convErr := strconv.ParseInt(fmt.Sprint(rawRes[4]), 10, 64); convErr == nil {
-			res.LockTime = ms
-		}
-	}
-	if len(rawRes) > 5 {
-		res.Snapshot = fmt.Sprint(rawRes[5])
-	}
-	return res, nil
-}
-
-// Step 2.2.1: 以 CAS 方式续期持有中的租约，防止长耗时建单期间租约中途过期
-// 来源: 提单业务执行期间的续租心跳, 携带 AcquireSettlementToken 返回的 lockTime
-// 用于: 杜绝 DTM Saga 慢链路耗时超过租约窗口后被他人接管并重复建单
-func (r *MySQLRepository) RenewSettlementToken(ctx context.Context, token string, expectLockTime int64, ttl time.Duration) (int64, bool, error) {
-	tid := r.resolveTenant(ctx)
-	key := r.settlementKey(tid, token)
-	nowMs := time.Now().UnixMilli()
-
-	// CAS 续租: 仅当 status 仍为 PROCESSING 且 lock_time 与持有者一致时才会续期
-	// 若 lock_time 已被他人接管改写，本次续租返回 LOST，持锁者立即感知自己已失去租约
-	renewScript := `
-		local status = redis.call('HGET', KEYS[1], 'status')
-		if status ~= 'PROCESSING' then
-			return {'LOST', ''}
-		end
-
-		local cur = tonumber(redis.call('HGET', KEYS[1], 'lock_time') or '0')
-		if cur ~= tonumber(ARGV[2]) then
-			return {'LOST', ''}
-		end
-
-		redis.call('HMSET', KEYS[1], 'lock_time', ARGV[1])
-		redis.call('EXPIRE', KEYS[1], 1800)
-		return {'RENEWED', ARGV[1]}
-	`
-
-	rawRes, err := r.redisClient.Eval(ctx, renewScript, []string{key}, nowMs, expectLockTime).Slice()
-	if err != nil {
-		return 0, false, err
-	}
-	if len(rawRes) == 0 || fmt.Sprint(rawRes[0]) != "RENEWED" {
-		return 0, false, nil
-	}
-	if len(rawRes) > 1 {
-		if ms, convErr := strconv.ParseInt(fmt.Sprint(rawRes[1]), 10, 64); convErr == nil {
-			return ms, true, nil
-		}
-	}
-	return nowMs, true, nil
-}
-
-// Step 2.3: 记录结算令牌建单成功 (SUCCESS 状态, 绑定订单 ID 与订单快照, TTL 24h)
-// 来源: 订单与子单成功持久化落库
-// 用于: 支持网络重试时直接无缝回显已创建的完整订单, 免打 MySQL 库
-func (r *MySQLRepository) RecordSettlementSuccess(ctx context.Context, token, parentOrderID, parentOrderNo, snapshot string, ttl time.Duration) error {
-	tid := r.resolveTenant(ctx)
-	key := r.settlementKey(tid, token)
-	pipe := r.redisClient.Pipeline()
-	pipe.HSet(ctx, key, map[string]interface{}{
-		"status":          TokenStatusSuccess,
-		"parent_order_id": parentOrderID,
-		"parent_order_no": parentOrderNo,
-		"order_snapshot":  snapshot,
-	})
-	pipe.Expire(ctx, key, ttl)
-	_, err := pipe.Exec(ctx)
-	return err
-}
-
-// Step 2.4: 记录结算令牌建单失败 (可重试软故障 vs 硬阻断失败)
-// 来源: 库存不足、限购不满足或底层网络死锁异常
-// 用于: 精准分流重试权限，硬失败 5m 秒拒，软故障允许再次建单
-func (r *MySQLRepository) RecordSettlementFail(ctx context.Context, token string, isFatal bool, reason string) error {
-	tid := r.resolveTenant(ctx)
-	key := r.settlementKey(tid, token)
-	status := TokenStatusRetryableFail
-	ttl := biz.SettlementTokenRetryableFailTTL
-	if isFatal {
-		status = TokenStatusFatalFail
-		ttl = biz.SettlementTokenFatalFailTTL
-	}
-	pipe := r.redisClient.Pipeline()
-	pipe.HSet(ctx, key, map[string]interface{}{
-		"status": status,
-		"reason": reason,
-	})
-	pipe.Expire(ctx, key, ttl)
-	_, err := pipe.Exec(ctx)
-	return err
-}
-
-// Step 2.5: 兼容旧版原子单次消费接口
-// 来源: 历史调用或极简测试
-// 用于: 委托给 AcquireSettlementToken 状态机执行
-func (r *MySQLRepository) ConsumeSettlementToken(ctx context.Context, userID, token string) (bool, error) {
-	res, err := r.AcquireSettlementToken(ctx, userID, token, 5*time.Second)
-	if err != nil {
-		return false, err
-	}
-	return res.Action == "PROCEED" || res.Action == "SUCCESS_REPLAY", nil
-}
 
 // --- Order Operations ---
 
@@ -648,7 +439,7 @@ func (r *MySQLRepository) CreateOrder(ctx context.Context, order *orderv1.Order)
 		Status:      order.Status,
 		Items:       order.Items,
 	}
-	_, _, err := r.CreateParentOrder(ctx, parent, []*orderv1.ChildOrder{child}, "")
+	_, _, err := r.CreateParentOrder(ctx, parent, []*orderv1.ChildOrder{child})
 	if err != nil {
 		return nil, err
 	}
@@ -790,7 +581,7 @@ func (r *MySQLRepository) UpdateOrderStatus(ctx context.Context, orderID, oldSta
 // Step 3.1: 在本地数据库事务中持久化主订单及其聚合的子订单与明细项
 // 来源: OrderSplitter 拆单引擎计算输出的 *orderv1.ParentOrder 与 []*orderv1.ChildOrder
 // 用于: 在单一事务中原子写入 parent_orders, child_orders 及 order_items 表
-func (r *MySQLRepository) CreateParentOrder(ctx context.Context, parent *orderv1.ParentOrder, children []*orderv1.ChildOrder, settlementToken string) (*orderv1.ParentOrder, []*orderv1.ChildOrder, error) {
+func (r *MySQLRepository) CreateParentOrder(ctx context.Context, parent *orderv1.ParentOrder, children []*orderv1.ChildOrder) (*orderv1.ParentOrder, []*orderv1.ChildOrder, error) {
 	parentID := parent.Id
 	if parentID == "" {
 		parentID = "pord-" + uuid.NewString()
@@ -816,12 +607,6 @@ func (r *MySQLRepository) CreateParentOrder(ctx context.Context, parent *orderv1
 		ReceiverAddress: parent.ReceiverAddress,
 		ExpireAt:        expireAt,
 		CreatedAt:       now,
-	}
-	// 结算令牌随建单事务落库，作为 UNIQUE (tenant_id, settlement_token) 的幂等键
-	// 用于: Redis 集群脑裂丢数据时由 MySQL 唯一索引兜底，阻断同一令牌重复建单
-	if settlementToken != "" {
-		tokenCopy := settlementToken
-		parentModel.SettlementToken = &tokenCopy
 	}
 
 	childModels := make([]*ChildOrderModel, len(children))
@@ -889,11 +674,6 @@ func (r *MySQLRepository) CreateParentOrder(ctx context.Context, parent *orderv1
 	})
 
 	if err != nil {
-		// 结算令牌唯一索引冲突: 同一令牌已落库成单 (租约自愈重入的极端并发场景)
-		// 用于: 向上层抛出可识别的哨兵错误, 由用例层转为回显既有订单而非重复建单
-		if biz.IsDuplicateSettlementToken(err) {
-			return nil, nil, biz.ErrDuplicateSettlementToken
-		}
 		return nil, nil, err
 	}
 

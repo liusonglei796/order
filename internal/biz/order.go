@@ -2,13 +2,9 @@ package biz
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +16,6 @@ import (
 	orderv1 "order/gen/order/v1"
 	productv1 "order/gen/product/v1"
 	walletv1 "order/gen/wallet/v1"
-	"order/internal/pkg/tenant"
 )
 
 type OrderUsecase struct {
@@ -30,7 +25,6 @@ type OrderUsecase struct {
 	walletClient    walletv1.WalletServiceClient
 	splitter        *OrderSplitter
 	fulfiller       Fulfiller
-	leaseTimeout    time.Duration
 	log             *log.Helper
 }
 
@@ -51,16 +45,8 @@ func NewOrderUsecase(
 		productClient:   productClient,
 		inventoryClient: inventoryClient,
 		walletClient:    walletClient,
-		leaseTimeout:    5 * time.Second,
 		log:             log.NewHelper(logger),
 	}
-}
-
-// Step 0.2: 动态配置提单租约锁超时窗口
-// 来源: 单元测试或压测混沌注入
-// 用于: 支持自愈租约时间窗口自定义，默认 5s
-func (uc *OrderUsecase) SetLeaseTimeout(timeout time.Duration) {
-	uc.leaseTimeout = timeout
 }
 
 // Step 1.1: 添加商品到购物车
@@ -178,230 +164,19 @@ func (uc *OrderUsecase) GetCart(ctx context.Context, userID string) (*orderv1.Ge
 	}, nil
 }
 
-// Step 2.0: 签发具备幂等语义的结算令牌 (内嵌签发毫秒时间戳)
-// 来源: 买家点击"去结算"进入结算页
-// 用于: 生成全局唯一且可反解签发时刻的幂等令牌, 支撑主订单号的跨节点确定性推导
-func GenerateSettlementToken() string {
-	return fmt.Sprintf("st-%d-%s", time.Now().UnixMilli(), uuid.NewString())
-}
 
-// Step 2.0.1: 解析结算令牌内嵌的签发毫秒时间戳
-// 来源: GenerateSettlementToken 生成的 st-{unixMilli}-{uuid} 格式
-// 用于: 主订单号保留可读的时间戳前缀, 同时保持跨节点、跨重试的确定性
-func settlementTokenTimestamp(token string) (int64, bool) {
-	const prefix = "st-"
-	if !strings.HasPrefix(token, prefix) {
-		return 0, false
-	}
-	rest := token[len(prefix):]
-	idx := strings.Index(rest, "-")
-	if idx <= 0 {
-		return 0, false
-	}
-	ms, err := strconv.ParseInt(rest[:idx], 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return ms, true
-}
 
-// Step 2.1: 准备结算并签发结算令牌与跨店拆单预览
-func (uc *OrderUsecase) PrepareSettlement(ctx context.Context, userID string, skuIDs []string) (*orderv1.PrepareSettlementResponse, error) {
-	rawItems, err := uc.repo.GetCartItems(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
 
-	selectedSKUs := make(map[string]bool)
-	for _, id := range skuIDs {
-		selectedSKUs[id] = true
-	}
 
-	var targetItems []*CartItemData
-	for _, it := range rawItems {
-		if len(skuIDs) > 0 {
-			if selectedSKUs[it.SkuID] {
-				targetItems = append(targetItems, it)
-			}
-		} else if it.Selected {
-			targetItems = append(targetItems, it)
-		}
-	}
 
-	if len(targetItems) == 0 {
-		return nil, errors.New("no items selected for settlement")
-	}
 
-	fetchSkuIDs := make([]string, len(targetItems))
-	for i, it := range targetItems {
-		fetchSkuIDs[i] = it.SkuID
-	}
-
-	skuMap := make(map[string]*productv1.SKU)
-	if uc.productClient != nil {
-		pResp, err := uc.productClient.BatchGetSKUs(ctx, &productv1.BatchGetSKUsRequest{SkuIds: fetchSkuIDs})
-		if err == nil && pResp != nil {
-			for _, sku := range pResp.Skus {
-				skuMap[sku.Id] = sku
-			}
-		}
-	}
-
-	cartItems := make([]*orderv1.CartItem, len(targetItems))
-	rawSplitItems := make([]*RawSplitItem, len(targetItems))
-	var totalAmount int64
-
-	for i, raw := range targetItems {
-		sku, ok := skuMap[raw.SkuID]
-		title := raw.SkuID
-		var image, attrsJSON string
-		var price int64
-		tid := "tenant-default"
-		available := false
-
-		if ok {
-			title = sku.Title
-			image = sku.Image
-			attrsJSON = sku.AttrsJson
-			price = sku.Price
-			if sku.TenantId != "" {
-				tid = sku.TenantId
-			}
-			available = (sku.Status == 1)
-		} else {
-			sku = &productv1.SKU{
-				Id:       raw.SkuID,
-				TenantId: tid,
-				Title:    title,
-				Price:    0,
-			}
-		}
-
-		subtotal := price * raw.Quantity
-		totalAmount += subtotal
-
-		cartItems[i] = &orderv1.CartItem{
-			SkuId:     raw.SkuID,
-			Quantity:  raw.Quantity,
-			Selected:  true,
-			Title:     title,
-			Image:     image,
-			AttrsJson: attrsJSON,
-			Price:     price,
-			Subtotal:  subtotal,
-			Available: available,
-			TenantId:  tid,
-			StoreName: fmt.Sprintf("商户店铺 (%s)", tid),
-		}
-
-		rawSplitItems[i] = &RawSplitItem{
-			SkuID:    raw.SkuID,
-			Quantity: raw.Quantity,
-			SKU:      sku,
-		}
-	}
-
-	groups := uc.splitter.GroupItemsByTenant(rawSplitItems)
-	var totalDiscount int64 = 0
-	allocatedDiscounts, _ := uc.splitter.AllocateProportionalDiscounts(groups, totalDiscount)
-
-	storeGroups := make([]*orderv1.StoreSettlementGroup, len(groups))
-	for i, g := range groups {
-		var storeItems []*orderv1.CartItem
-		var storeTotal int64
-		var storeDiscount int64
-
-		for _, it := range g.Items {
-			subtotal := it.SKU.Price * it.Quantity
-			storeTotal += subtotal
-			storeDiscount += allocatedDiscounts[it.SkuID]
-
-			for _, ci := range cartItems {
-				if ci.SkuId == it.SkuID {
-					storeItems = append(storeItems, ci)
-					break
-				}
-			}
-		}
-
-		storeGroups[i] = &orderv1.StoreSettlementGroup{
-			TenantId:       g.TenantID,
-			StoreName:      fmt.Sprintf("商户店铺 (%s)", g.TenantID),
-			Items:          storeItems,
-			TotalAmount:    storeTotal,
-			DiscountAmount: storeDiscount,
-			PayAmount:      storeTotal - storeDiscount,
-		}
-	}
-
-	token := GenerateSettlementToken()
-	_ = uc.repo.SaveSettlementToken(ctx, userID, token, SettlementTokenInitTTL)
-
-	return &orderv1.PrepareSettlementResponse{
-		SettlementToken: token,
-		Items:           cartItems,
-		TotalAmount:     totalAmount,
-		StoreGroups:     storeGroups,
-		TotalDiscount:   totalDiscount,
-		PayAmount:       totalAmount - totalDiscount,
-	}, nil
-}
-
-// Step 3.0: 由结算令牌确定性推导主订单编号
-// 来源: Step 2.0 签发的 settlement_token 与当前租户 ID
-// 用于: 同一令牌在任何节点、任何次重试中推导出的订单号完全一致,
-//
-//	使 DTM Saga 全局事务 ID、库存幂等键与数据库唯一索引在租约自愈重入时仍命中同一条业务记录
-func DeriveParentOrderNo(tenantID, token string) string {
-	sum := sha256.Sum256([]byte(tenantID + "|" + token))
-	suffix := hex.EncodeToString(sum[:])[:6]
-	if ms, ok := settlementTokenTimestamp(token); ok {
-		return fmt.Sprintf("PORD%s%s", time.UnixMilli(ms).Format("20060102150405"), suffix)
-	}
-	return fmt.Sprintf("PORD%s", suffix)
-}
-
-// Step 3.1: 创建订单与跨商家拆单
+// Step 2.1: 创建订单与跨商家拆单
+// 来源: 买家在前端确认收货信息与待结算条目后发起 CreateOrder 请求
+// 用于: 执行跨店拆单、库存预占、持久化主子订单拓扑并写入订单超时关单延迟队列
 func (uc *OrderUsecase) CreateOrder(ctx context.Context, req *orderv1.CreateOrderRequest, userID string) (*orderv1.CreateOrderResponse, error) {
-	token := strings.TrimSpace(req.GetSettlementToken())
-	if token == "" {
-		return nil, errors.New("settlement_token cannot be empty")
-	}
-
-	leaseTimeout := uc.leaseTimeout
-	if leaseTimeout <= 0 {
-		leaseTimeout = 5 * time.Second
-	}
-	tokenRes, err := uc.repo.AcquireSettlementToken(ctx, userID, token, leaseTimeout)
-	if err != nil {
-		return nil, err
-	}
-
-	switch tokenRes.Action {
-	case "SUCCESS_REPLAY":
-		// 命中已成功终态: 优先直接读取 Redis 中固化的订单快照纯内存回显, 绝不二次落库、绝不穿透 MySQL
-		if parent := unmarshalOrderSnapshot(tokenRes.Snapshot); parent != nil {
-			return uc.buildCreateOrderResponse(parent, parent.ChildOrders), nil
-		}
-		// 快照缺失 (如灰度期旧令牌或快照写入失败) 时降级为主键回查, 仍绝不重新建单
-		parent, gErr := uc.repo.GetParentOrder(ctx, tokenRes.ParentOrderID)
-		if gErr != nil || parent == nil {
-			// 回显链路断裂时必须显式失败, 绝不能回落去重新建单, 否则将制造重复订单
-			return nil, fmt.Errorf("cannot replay settlement result for parent order %s: %v", tokenRes.ParentOrderID, gErr)
-		}
-		return uc.buildCreateOrderResponse(parent, parent.ChildOrders), nil
-	case "PROCEED":
-		// 抢占成功, 持有租约, 继续向下执行建单链路
-	default:
-		return nil, fmt.Errorf("cannot create order: %s", tokenRes.Action)
-	}
-
-	// Step 3.1.1: 启动租约续期心跳 (CAS 续租)
-	// 来源: Step 3.1 AcquireSettlementToken 抢占成功后返回的 lockTime
-	// 用于: DTM Saga 跨店库存预占等长耗时链路持续持有租约, 杜绝租约中途过期被他人接管
-	stopRenew := uc.startLeaseRenewal(ctx, token, tokenRes.LockTime)
-	defer stopRenew()
-
+	// Step 2.1.1: 提取待购 SKU 列表并校验商品有效性
+	// 来源: req.GetItems()
+	// 用于: 向商品中心批量获取 SKU 定价与状态
 	skuIDs := make([]string, len(req.GetItems()))
 	for i, it := range req.GetItems() {
 		skuIDs[i] = it.SkuId
@@ -443,20 +218,25 @@ func (uc *OrderUsecase) CreateOrder(ctx context.Context, req *orderv1.CreateOrde
 		}
 	}
 
+	// Step 2.1.2: 执行跨商家租户拆单与优惠分摊
+	// 来源: Step 2.1.1 校验通过的 rawSplitItems
+	// 用于: Step 2.1.3 生成各商家的子订单拓扑并分摊平台满减折扣
 	groups := uc.splitter.GroupItemsByTenant(rawSplitItems)
 	var platformDiscount int64 = 0
 	allocatedDiscounts, realizedPrices := uc.splitter.AllocateProportionalDiscounts(groups, platformDiscount)
 
-	// Step 3.1.2: 由结算令牌确定性推导主订单编号 (替代随机编号)
-	// 来源: Step 3.0 DeriveParentOrderNo(租户, 结算令牌)
-	// 用于: DTM Saga 全局事务 ID 与库存幂等键随主订单号一并确定化, 杜绝自愈重入重复预占库存
-	parentOrderNo := DeriveParentOrderNo(uc.resolveTenantID(ctx), token)
+	// Step 2.1.3: 生成主订单编号并执行多商户库存预占
+	// 来源: 系统时间与随机 UUID 前缀
+	// 用于: Step 2.1.4 组装主子订单拓扑并预占底层库存
+	parentOrderNo := fmt.Sprintf("PORD%s%s", time.Now().Format("20060102150405"), strings.ToUpper(uuid.New().String()[:8]))
 	reservations, err := uc.splitter.ReserveStockAllOrNothing(ctx, parentOrderNo, groups)
 	if err != nil {
-		_ = uc.repo.RecordSettlementFail(ctx, token, true, err.Error())
 		return nil, err
 	}
 
+	// Step 2.1.4: 组装主订单与商家子订单聚合实体
+	// 来源: parentOrderNo 与 Step 2.1.2/2.1.3 的分单、折后金额及预占流水
+	// 用于: Step 2.1.5 在数据库单一事务中原子持久化落库
 	parentOrder, childOrders := uc.splitter.AssembleParentAndChildOrders(
 		parentOrderNo,
 		userID,
@@ -469,28 +249,23 @@ func (uc *OrderUsecase) CreateOrder(ctx context.Context, req *orderv1.CreateOrde
 		reservations,
 	)
 
-	createdParent, createdChildren, err := uc.repo.CreateParentOrder(ctx, parentOrder, childOrders, token)
+	// Step 2.1.5: 持久化主订单与子订单集合
+	// 来源: Step 2.1.4 组装的 parentOrder 与 childOrders
+	// 用于: 在单一事务中原子写入 parent_orders, child_orders 及 order_items 表
+	createdParent, createdChildren, err := uc.repo.CreateParentOrder(ctx, parentOrder, childOrders)
 	if err != nil {
-		// Step 3.1.3: 结算令牌唯一索引冲突兜底
-		// 来源: MySQL UNIQUE (tenant_id, settlement_token) 拦截的重复建单
-		// 用于: 复用确定性订单号回显既有订单, 绝不生成第二笔订单
-		if errors.Is(err, ErrDuplicateSettlementToken) {
-			existing, gErr := uc.repo.GetParentOrderByNo(ctx, parentOrderNo)
-			if gErr == nil && existing != nil {
-				_ = uc.repo.RecordSettlementSuccess(ctx, token, existing.Id, existing.OrderNo, marshalOrderSnapshot(existing), SettlementTokenSuccessTTL)
-				return uc.buildCreateOrderResponse(existing, existing.ChildOrders), nil
-			}
-			return nil, err
-		}
-		_ = uc.repo.RecordSettlementFail(ctx, token, false, err.Error())
 		return nil, err
 	}
 
+	// Step 2.1.6: 写入延时关单队列并清理已购购物车条目
+	// 来源: createdParent.Id 与 createdParent.ExpireAt
+	// 用于: 驱动超时自动关单以及维护买家购物车的即时库存状态
 	_ = uc.repo.AddOrderExpiration(ctx, createdParent.Id, createdParent.ExpireAt)
 	_ = uc.repo.RemoveCartItems(ctx, userID, skuIDs)
-	// 固化订单快照到 Redis Hash, 使后续弱网重试可以纯内存秒级回显
-	_ = uc.repo.RecordSettlementSuccess(ctx, token, createdParent.Id, createdParent.OrderNo, marshalOrderSnapshot(createdParent), SettlementTokenSuccessTTL)
 
+	// Step 2.1.7: 组装并返回提单响应
+	// 来源: createdParent 与 createdChildren
+	// 用于: 返回 gRPC CreateOrderResponse
 	return uc.buildCreateOrderResponse(createdParent, createdChildren), nil
 }
 
@@ -526,81 +301,7 @@ func (uc *OrderUsecase) buildCreateOrderResponse(parent *orderv1.ParentOrder, ch
 	}
 }
 
-// Step 3.2.1: 序列化主订单快照 (含子单与明细) 供纯内存回显
-// 来源: 已落库的主订单聚合 (主单 + 子单 + 明细)
-// 用于: 弱网超时重试命中 SUCCESS 终态时直接提取快照秒级回显, 完全不穿透 MySQL
-func marshalOrderSnapshot(parent *orderv1.ParentOrder) string {
-	if parent == nil {
-		return ""
-	}
-	raw, err := json.Marshal(parent)
-	if err != nil {
-		return ""
-	}
-	return string(raw)
-}
 
-// Step 3.2.2: 反序列化 Redis 中固化的主订单快照
-// 来源: AcquireSettlementToken 在 SUCCESS_REPLAY 分支回传的 order_snapshot 字段
-// 用于: 纯内存重建提单响应; 快照缺失或损坏时返回 nil, 由调用方降级为主键回查
-func unmarshalOrderSnapshot(snapshot string) *orderv1.ParentOrder {
-	if snapshot == "" {
-		return nil
-	}
-	var parent orderv1.ParentOrder
-	if err := json.Unmarshal([]byte(snapshot), &parent); err != nil {
-		return nil
-	}
-	return &parent
-}
-
-// Step 3.3: 启动租约续期心跳 (CAS 续租)
-// 来源: Step 3.1 AcquireSettlementToken 抢占成功后返回的 lockTime
-// 用于: 长耗时建单链路持续持有租约, 杜绝租约中途过期被他人接管后重复建单与重复预占库存
-// 返回值: 停止续租的取消函数 (由调用方 defer 触发)
-func (uc *OrderUsecase) startLeaseRenewal(ctx context.Context, token string, lockTime int64) func() {
-	interval := uc.leaseTimeout / 3
-	if interval <= 0 {
-		interval = time.Second
-	}
-	renewCtx, cancel := context.WithCancel(ctx)
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		current := lockTime
-		for {
-			select {
-			case <-renewCtx.Done():
-				return
-			case <-ticker.C:
-				newLock, ok, rErr := uc.repo.RenewSettlementToken(renewCtx, token, current, SettlementTokenKeyTTL)
-				if rErr != nil {
-					// Redis 异常无法续租: 停止心跳, 由数据库唯一索引兜底阻断重复建单
-					uc.log.WithContext(renewCtx).Warnf("settlement token lease renew failed: %v", rErr)
-					return
-				}
-				if !ok {
-					// lock_time 已被他人接管改写, 本节点已失去租约, 立即停止续租
-					uc.log.WithContext(renewCtx).Warnf("settlement token lease lost, token=%s", token)
-					return
-				}
-				current = newLock
-			}
-		}
-	}()
-	return cancel
-}
-
-// Step 3.4: 解析当前请求的租户标识 (与仓储层 resolveTenant 保持一致的兜底语义)
-// 来源: 租户拦截器注入 ctx 的 x-tenant-id
-// 用于: 订单号确定性推导需与 parent_orders.tenant_id 取值口径完全一致
-func (uc *OrderUsecase) resolveTenantID(ctx context.Context) string {
-	tid := tenant.TenantID(ctx)
-	if tid == "" {
-		return "tenant-default"
-	}
-	return tid
-}
 
 // Step 4.1: 支付订单推进
 func (uc *OrderUsecase) PayOrder(ctx context.Context, targetID, payChannel string) (*orderv1.PayOrderResponse, error) {

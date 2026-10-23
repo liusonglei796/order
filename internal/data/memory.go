@@ -1,4 +1,4 @@
-﻿package data
+package data
 
 import (
 	"context"
@@ -17,11 +17,9 @@ import (
 )
 
 var (
-	ErrOrderNotFound           = biz.ErrOrderNotFound
-	ErrInvalidOrderStatus      = biz.ErrInvalidOrderStatus
-	ErrSettlementTokenExpired  = biz.ErrSettlementTokenExpired
-	ErrSettlementTokenConsumed = biz.ErrSettlementTokenConsumed
-	ErrAfterSalesNotFound      = biz.ErrAfterSalesNotFound
+	ErrOrderNotFound      = biz.ErrOrderNotFound
+	ErrInvalidOrderStatus = biz.ErrInvalidOrderStatus
+	ErrAfterSalesNotFound = biz.ErrAfterSalesNotFound
 )
 
 func toUnixSeconds(v interface{}) (int64, bool) {
@@ -46,34 +44,21 @@ func toUnixSeconds(v interface{}) (int64, bool) {
 	}
 }
 
-type tokenRecord struct {
-	userID        string
-	status        string // INIT, PROCESSING, SUCCESS, RETRYABLE_FAIL, FATAL_FAIL
-	lockTime      time.Time
-	expiresAt     time.Time
-	parentOrderID string
-	parentOrderNo string
-	snapshot      string // 成功终态固化的主订单 JSON 快照 (纯内存回显)
-	reason        string
-}
-
-// MemoryRepository provides a concurrent in-memory store for orders, cart, and tokens.
+// MemoryRepository provides a concurrent in-memory store for orders and cart.
 type MemoryRepository struct {
 	mu           sync.RWMutex
 	carts        map[string]map[string]*CartItemData // key: "tenant_id:user_id" -> map[sku_id]*CartItemData
-	tokens       map[string]tokenRecord              // key: "tenant_id:token" -> tokenRecord
 	orders       map[string]*orderv1.Order           // key: "tenant_id:order_id" -> Order
 	orderNoIndex map[string]string                   // key: "tenant_id:order_no" -> order_id
 	orderKeys    []string                            // chronological order of keys
 
 	// Marketplace Parent-Child Order Topology
-	parentOrders   map[string]*orderv1.ParentOrder // key: parent_id -> ParentOrder
-	parentNoIndex  map[string]string               // key: "tenant_id:order_no" -> parent_id
-	parentKeys     []string
-	childOrders    map[string]*orderv1.ChildOrder // key: "tenant_id:child_id" -> ChildOrder
-	childNoIndex   map[string]string              // key: "tenant_id:order_no" -> child_id
-	childKeys      []string
-	parentTokenIdx map[string]string // key: "tenant_id:settlement_token" -> parent_id (幂等唯一索引模拟)
+	parentOrders  map[string]*orderv1.ParentOrder // key: parent_id -> ParentOrder
+	parentNoIndex map[string]string               // key: "tenant_id:order_no" -> parent_id
+	parentKeys    []string
+	childOrders   map[string]*orderv1.ChildOrder // key: "tenant_id:child_id" -> ChildOrder
+	childNoIndex  map[string]string              // key: "tenant_id:order_no" -> child_id
+	childKeys     []string
 
 	// Granular SKU & Child Order After-Sales
 	afterSales        map[string]*orderv1.AfterSalesOrder // key: id -> AfterSalesOrder
@@ -88,14 +73,12 @@ type MemoryRepository struct {
 func NewMemoryRepository() *MemoryRepository {
 	repo := &MemoryRepository{
 		carts:             make(map[string]map[string]*CartItemData),
-		tokens:            make(map[string]tokenRecord),
 		orders:            make(map[string]*orderv1.Order),
 		orderNoIndex:      make(map[string]string),
 		orderKeys:         make([]string, 0),
 		parentOrders:      make(map[string]*orderv1.ParentOrder),
 		parentNoIndex:     make(map[string]string),
 		parentKeys:        make([]string, 0),
-		parentTokenIdx:    make(map[string]string),
 		childOrders:       make(map[string]*orderv1.ChildOrder),
 		childNoIndex:      make(map[string]string),
 		childKeys:         make([]string, 0),
@@ -311,164 +294,11 @@ func (m *MemoryRepository) ClearCart(ctx context.Context, userID string) error {
 	return nil
 }
 
-// --- Settlement Tokens (状态机治理与多阶段 TTL 防重模型) ---
 
-// Step 2.1: 保存初始待消费结算令牌 (INIT 状态, 内存实现)
-// 来源: OrderService.PrepareSettlement 阶段签发的结算令牌
-// 用于: 记录买家归属并进入待消费初始态
-func (m *MemoryRepository) SaveSettlementToken(ctx context.Context, userID, token string, ttl time.Duration) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	tid := m.resolveTenant(ctx)
-	key := fmt.Sprintf("%s:%s", tid, token)
 
-	m.tokens[key] = tokenRecord{
-		userID:    userID,
-		status:    TokenStatusInit,
-		expiresAt: time.Now().Add(ttl),
-	}
-	return nil
-}
 
-// Step 2.2: 原子推进结算令牌状态至 PROCESSING (内存状态机实现)
-// 来源: OrderService.CreateOrder 提单阶段传入的 token 与买家 userID
-// 用于: 拦截瞬时连击、租约自愈接管与已成功幂等回显
-func (m *MemoryRepository) AcquireSettlementToken(ctx context.Context, userID, token string, leaseTimeout time.Duration) (*TokenAcquireResult, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	tid := m.resolveTenant(ctx)
-	key := fmt.Sprintf("%s:%s", tid, token)
 
-	rec, ok := m.tokens[key]
-	if !ok || time.Now().After(rec.expiresAt) {
-		delete(m.tokens, key)
-		return &TokenAcquireResult{Action: "EXPIRED"}, nil
-	}
 
-	if rec.userID != userID {
-		return &TokenAcquireResult{Action: "FORBIDDEN"}, nil
-	}
-
-	if rec.status == TokenStatusSuccess {
-		return &TokenAcquireResult{
-			Action:        "SUCCESS_REPLAY",
-			ParentOrderID: rec.parentOrderID,
-			ParentOrderNo: rec.parentOrderNo,
-			Snapshot:      rec.snapshot,
-		}, nil
-	}
-
-	if rec.status == TokenStatusFatalFail {
-		return &TokenAcquireResult{
-			Action: "FATAL_FAIL",
-			Reason: rec.reason,
-		}, nil
-	}
-
-	now := time.Now()
-	if rec.status == TokenStatusInit || rec.status == TokenStatusRetryableFail {
-		rec.status = TokenStatusProcessing
-		rec.lockTime = now
-		rec.expiresAt = now.Add(biz.SettlementTokenKeyTTL)
-		m.tokens[key] = rec
-		return &TokenAcquireResult{Action: "PROCEED", LockTime: now.UnixMilli()}, nil
-	}
-
-	if rec.status == TokenStatusProcessing {
-		if now.Sub(rec.lockTime) > leaseTimeout {
-			// 租约超时自愈接管：前序任务超时或崩溃，放行新请求
-			rec.lockTime = now
-			rec.expiresAt = now.Add(biz.SettlementTokenKeyTTL)
-			m.tokens[key] = rec
-			return &TokenAcquireResult{Action: "PROCEED", LockTime: now.UnixMilli()}, nil
-		}
-		return &TokenAcquireResult{Action: "STILL_PROCESSING", LockTime: rec.lockTime.UnixMilli()}, nil
-	}
-
-	return &TokenAcquireResult{Action: "EXPIRED"}, nil
-}
-
-// Step 2.2.1: 以 CAS 方式续期持有中的租约 (内存实现)
-// 来源: 提单业务执行期间的续租心跳, 携带 AcquireSettlementToken 返回的 lockTime
-// 用于: 长耗时建单链路持续持有租约, 杜绝租约中途过期被他人接管导致重复建单
-func (m *MemoryRepository) RenewSettlementToken(ctx context.Context, token string, expectLockTime int64, ttl time.Duration) (int64, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	tid := m.resolveTenant(ctx)
-	key := fmt.Sprintf("%s:%s", tid, token)
-
-	rec, ok := m.tokens[key]
-	if !ok || rec.status != TokenStatusProcessing {
-		return 0, false, nil
-	}
-	// CAS 比对: lock_time 已被他人接管改写则放弃续约
-	if rec.lockTime.UnixMilli() != expectLockTime {
-		return 0, false, nil
-	}
-	now := time.Now()
-	rec.lockTime = now
-	rec.expiresAt = now.Add(biz.SettlementTokenKeyTTL)
-	m.tokens[key] = rec
-	return now.UnixMilli(), true, nil
-}
-
-// Step 2.3: 记录结算令牌建单成功 (内存实现)
-// 来源: 订单成功持久化落库
-// 用于: 缓存生成的主订单 ID 与编号供幂等回显
-func (m *MemoryRepository) RecordSettlementSuccess(ctx context.Context, token, parentOrderID, parentOrderNo, snapshot string, ttl time.Duration) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	tid := m.resolveTenant(ctx)
-	key := fmt.Sprintf("%s:%s", tid, token)
-
-	rec, ok := m.tokens[key]
-	if !ok {
-		rec = tokenRecord{}
-	}
-	rec.status = TokenStatusSuccess
-	rec.parentOrderID = parentOrderID
-	rec.parentOrderNo = parentOrderNo
-	rec.snapshot = snapshot
-	rec.expiresAt = time.Now().Add(ttl)
-	m.tokens[key] = rec
-	return nil
-}
-
-// Step 2.4: 记录结算令牌建单失败 (内存实现)
-// 来源: 库存不足或系统异常
-// 用于: 精准分流重试权限
-func (m *MemoryRepository) RecordSettlementFail(ctx context.Context, token string, isFatal bool, reason string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	tid := m.resolveTenant(ctx)
-	key := fmt.Sprintf("%s:%s", tid, token)
-
-	rec, ok := m.tokens[key]
-	if !ok {
-		rec = tokenRecord{}
-	}
-	if isFatal {
-		rec.status = TokenStatusFatalFail
-		rec.expiresAt = time.Now().Add(biz.SettlementTokenFatalFailTTL)
-	} else {
-		rec.status = TokenStatusRetryableFail
-		rec.expiresAt = time.Now().Add(biz.SettlementTokenRetryableFailTTL)
-	}
-	rec.reason = reason
-	m.tokens[key] = rec
-	return nil
-}
-
-// Step 2.5: 兼容旧版原子单次消费接口
-// 来源: 历史测试调用
-// 用于: 委托给 AcquireSettlementToken 执行
-func (m *MemoryRepository) ConsumeSettlementToken(ctx context.Context, userID, token string) (bool, error) {
-	res, err := m.AcquireSettlementToken(ctx, userID, token, 5*time.Second)
-	if err != nil {
-		return false, err
-	}
-	return res.Action == "PROCEED" || res.Action == "SUCCESS_REPLAY", nil
-}
 
 // --- Order Operations ---
 
@@ -643,7 +473,7 @@ func (m *MemoryRepository) UpdateOrderStatus(ctx context.Context, orderID, oldSt
 // Step 3.1: 持久化主订单及其聚合的一组商家子订单
 // 来源: OrderSplitter 拆单引擎计算输出的 *orderv1.ParentOrder 与 []*orderv1.ChildOrder
 // 用于: 将主单、子单和明细数据写入内存索引，保障买家付款与商家履约的拓扑对应
-func (m *MemoryRepository) CreateParentOrder(ctx context.Context, parent *orderv1.ParentOrder, children []*orderv1.ChildOrder, settlementToken string) (*orderv1.ParentOrder, []*orderv1.ChildOrder, error) {
+func (m *MemoryRepository) CreateParentOrder(ctx context.Context, parent *orderv1.ParentOrder, children []*orderv1.ChildOrder) (*orderv1.ParentOrder, []*orderv1.ChildOrder, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -651,15 +481,6 @@ func (m *MemoryRepository) CreateParentOrder(ctx context.Context, parent *orderv
 	parentID := parent.Id
 	if parentID == "" {
 		parentID = "pord-" + uuid.NewString()
-	}
-
-	// 结算令牌唯一索引模拟: 同一租户下同一令牌只能落库一张主订单
-	// 用于: 内存态与 MySQL 态保持一致的幂等语义 (Redis 脑裂/租约自愈重入兜底)
-	if settlementToken != "" {
-		tokenKey := fmt.Sprintf("%s:%s", m.resolveTenant(ctx), settlementToken)
-		if _, dup := m.parentTokenIdx[tokenKey]; dup {
-			return nil, nil, biz.ErrDuplicateSettlementToken
-		}
 	}
 
 	expireAt := parent.ExpireAt
@@ -734,10 +555,6 @@ func (m *MemoryRepository) CreateParentOrder(ctx context.Context, parent *orderv
 	m.parentOrders[parentID] = parentCopy
 	m.parentNoIndex[fmt.Sprintf("%s:%s", ptid, parentCopy.OrderNo)] = parentID
 	m.parentKeys = append(m.parentKeys, parentID)
-	// 结算令牌唯一索引落库，模拟 MySQL UNIQUE (tenant_id, settlement_token) 的兜底语义
-	if settlementToken != "" {
-		m.parentTokenIdx[fmt.Sprintf("%s:%s", ptid, settlementToken)] = parentID
-	}
 
 	return proto.Clone(parentCopy).(*orderv1.ParentOrder), savedChildren, nil
 }
